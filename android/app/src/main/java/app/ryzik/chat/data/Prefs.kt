@@ -41,6 +41,11 @@ data class AppSettings(
     val compactList: Boolean = false,
     val bigEmoji: Boolean = true,
     val quickReaction: String = "❤️",
+    /** Держать соединение в фоне, чтобы уведомления приходили при закрытом приложении. */
+    val backgroundConnection: Boolean = true,
+    val callNotifications: Boolean = true,
+    val reactionNotifications: Boolean = true,
+    val inAppNotifications: Boolean = true,
 )
 
 /** Данные текущей сессии. Приватный ключ хранится обёрнутым ключом Android Keystore. */
@@ -89,6 +94,10 @@ class Prefs(private val context: Context) {
         val compact = booleanPreferencesKey("compact_list")
         val bigEmoji = booleanPreferencesKey("big_emoji")
         val quickReaction = stringPreferencesKey("quick_reaction")
+        val background = booleanPreferencesKey("background_connection")
+        val callNotif = booleanPreferencesKey("call_notifications")
+        val reactionNotif = booleanPreferencesKey("reaction_notifications")
+        val inAppNotif = booleanPreferencesKey("in_app_notifications")
 
         val server = stringPreferencesKey("server_url")
         val token = stringPreferencesKey("token")
@@ -124,6 +133,10 @@ class Prefs(private val context: Context) {
             compactList = p[K.compact] ?: d.compactList,
             bigEmoji = p[K.bigEmoji] ?: d.bigEmoji,
             quickReaction = p[K.quickReaction] ?: d.quickReaction,
+            backgroundConnection = p[K.background] ?: d.backgroundConnection,
+            callNotifications = p[K.callNotif] ?: d.callNotifications,
+            reactionNotifications = p[K.reactionNotif] ?: d.reactionNotifications,
+            inAppNotifications = p[K.inAppNotif] ?: d.inAppNotifications,
         )
     }
 
@@ -151,6 +164,10 @@ class Prefs(private val context: Context) {
             p[K.compact] = s.compactList
             p[K.bigEmoji] = s.bigEmoji
             p[K.quickReaction] = s.quickReaction
+            p[K.background] = s.backgroundConnection
+            p[K.callNotif] = s.callNotifications
+            p[K.reactionNotif] = s.reactionNotifications
+            p[K.inAppNotif] = s.inAppNotifications
         }
     }
 

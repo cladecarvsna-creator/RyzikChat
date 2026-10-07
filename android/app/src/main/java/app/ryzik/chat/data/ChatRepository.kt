@@ -70,6 +70,12 @@ sealed interface MediaState {
     data class Error(val message: String) : MediaState
 }
 
+/** События, о которых стоит показать уведомление (кроме новых сообщений). */
+sealed interface Notice {
+    data class AddedToChat(val chat: Chat, val by: User?) : Notice
+    data class ReactionOnMine(val chat: Chat, val messageId: String, val user: User?, val emoji: String, val preview: String) : Notice
+}
+
 sealed interface AuthState {
     data object Loading : AuthState
     data object LoggedOut : AuthState
@@ -120,6 +126,9 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
     private val _incoming = MutableSharedFlow<Pair<Chat, UiMessage>>(extraBufferCapacity = 32)
     /** Новые входящие сообщения — для уведомлений. */
     val incoming: SharedFlow<Pair<Chat, UiMessage>> = _incoming
+
+    private val _notices = MutableSharedFlow<Notice>(extraBufferCapacity = 32)
+    val notices: SharedFlow<Notice> = _notices
 
     private val media = ConcurrentHashMap<String, MutableStateFlow<MediaState>>()
     private val mediaDir = File(context.cacheDir, "media").apply { mkdirs() }
@@ -724,6 +733,14 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
         scope.launch { runCatching { api.markRead(chatId, last.seq) } }
     }
 
+    /** Отметить чат прочитанным без открытия (кнопка «Прочитано» в уведомлении). */
+    suspend fun markChatRead(chatId: String) {
+        val c = chat(chatId) ?: return
+        val seq = c.lastMessage?.seq ?: return
+        _chats.update { l -> l.map { if (it.id == chatId) it.copy(unread = 0, lastReadSeq = seq) else it } }
+        runCatching { api.markRead(chatId, seq) }
+    }
+
     private suspend fun bumpChat(m: Message) {
         val existing = chat(m.chatId)
         if (existing == null) {
@@ -878,7 +895,28 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
                 val c = chat(m.chatId)
                 if (c?.lastMessage?.id == m.id) upsertChat(c.copy(lastMessage = m))
             }
-            "chat.new" -> ev.chat?.let { upsertChat(it) }
+            "chat.new" -> ev.chat?.let { c ->
+                upsertChat(c)
+                val by = ev.by
+                if (by != null && by != myId && (c.type == "group" || c.type == "channel")) {
+                    val who = _users.value[by] ?: runCatching { loadUser(by) }.getOrNull()
+                    _notices.tryEmit(Notice.AddedToChat(c, who))
+                }
+            }
+            "reaction" -> {
+                val chatId = ev.chatId ?: return
+                val msgId = ev.messageId ?: return
+                val userId = ev.userId ?: return
+                val emoji = ev.emoji ?: return
+                if (userId == myId) return
+                val c = chat(chatId) ?: runCatching { loadChat(chatId) }.getOrNull() ?: return
+                val who = _users.value[userId] ?: runCatching { loadUser(userId) }.getOrNull()
+                val m = messageFlows[chatId]?.value?.firstOrNull { it.id == msgId }
+                val preview = m?.content?.let { previewText(m.type, it) }
+                    ?: c.lastMessage?.takeIf { it.id == msgId }?.let { previewOf(it) }
+                    ?: ""
+                _notices.tryEmit(Notice.ReactionOnMine(c, msgId, who, emoji, preview))
+            }
             "chat.updated" -> ev.chatId?.let { id -> runCatching { loadChat(id) } }
             "chat.removed" -> ev.chatId?.let { id -> _chats.update { l -> l.filterNot { it.id == id } } }
             "typing" -> {
@@ -890,6 +928,7 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
                 val chatId = ev.chatId ?: return
                 val userId = ev.userId ?: return
                 _readStates.update { it + (chatId to (it[chatId].orEmpty() + (userId to (ev.seq ?: 0)))) }
+                if (userId == myId) app.ryzik.chat.notify.Notifier.clearChat(context, chatId)
             }
             "presence" -> {
                 val id = ev.userId ?: return

@@ -253,6 +253,7 @@ fun ChatScreen(
     }
 
     DisposableEffect(chatId) {
+        app.ryzik.chat.notify.Notifier.clearChat(context, chatId)
         repo.openChatId = chatId
         onDispose { if (repo.openChatId == chatId) repo.openChatId = null }
     }

@@ -1,5 +1,7 @@
 package app.ryzik.chat.ui.settings
 
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.PersonAdd
 import app.ryzik.chat.ui.theme.PREMIUM_SEEDS_FROM
 import androidx.compose.material.icons.filled.Lock
@@ -109,7 +111,7 @@ import kotlinx.coroutines.launch
 enum class SettingsSection(val title: String, val subtitle: String, val icon: ImageVector) {
     Appearance("Оформление", "Тема, Material You, обои, размер текста", Icons.Default.Palette),
     Chats("Чаты", "Отправка, свайпы, реакции, эмодзи", Icons.AutoMirrored.Filled.Chat),
-    Notifications("Уведомления", "Звук, превью, группы", Icons.Default.Notifications),
+    Notifications("Уведомления", "Сообщения, звонки, реакции, работа в фоне", Icons.Default.Notifications),
     Privacy("Конфиденциальность", "Шифрование, сеансы, пароль", Icons.Default.Security),
     Data("Данные и память", "Автозагрузка, кэш", Icons.Default.Storage),
     Server("Сервер", "Адрес вашего сервера RyzikChat", Icons.Default.Dns),
@@ -504,8 +506,57 @@ private fun NotificationSettings(s: AppSettings, update: ((AppSettings) -> AppSe
     SwitchRow("Текст в уведомлении", "Показывать содержание сообщения", s.notificationPreview, enabled = s.notifications) { v -> update { it.copy(notificationPreview = v) } }
     SwitchRow("Группы", "Уведомления из групповых чатов", s.groupNotifications, enabled = s.notifications) { v -> update { it.copy(groupNotifications = v) } }
     SwitchRow("Вибрация", null, s.vibrate, enabled = s.notifications) { v -> update { it.copy(vibrate = v) } }
+    SwitchRow("Звонки", "Входящие и пропущенные звонки", s.callNotifications) { v -> update { it.copy(callNotifications = v) } }
+    SwitchRow("Реакции", "Когда кто-то реагирует на ваше сообщение", s.reactionNotifications, enabled = s.notifications) { v -> update { it.copy(reactionNotifications = v) } }
+    SwitchRow("Внутри приложения", "Показывать уведомления из других чатов, пока приложение открыто", s.inAppNotifications, enabled = s.notifications) { v -> update { it.copy(inAppNotifications = v) } }
+
+    Header("Работа в фоне")
+    SwitchRow(
+        "Получать при закрытом приложении",
+        "RyzikChat остаётся на связи в фоне и показывает, кто пишет и кто звонит. В шторке будет тихое уведомление «RyzikChat на связи».",
+        s.backgroundConnection,
+    ) { v -> update { it.copy(backgroundConnection = v) } }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val pm = context.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+    var ignoring by remember { mutableStateOf(pm.isIgnoringBatteryOptimizations(context.packageName)) }
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycle) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, e ->
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) ignoring = pm.isIgnoringBatteryOptimizations(context.packageName)
+        }
+        lifecycle.lifecycle.addObserver(obs)
+        onDispose { lifecycle.lifecycle.removeObserver(obs) }
+    }
+    ListItem(
+        headlineContent = { Text("Не ограничивать в фоне") },
+        supportingContent = {
+            Text(if (ignoring) "✅ Батарея не мешает получать сообщения" else "Нажмите и разрешите — иначе телефон может «усыплять» RyzikChat и уведомления будут опаздывать")
+        },
+        leadingContent = { Icon(Icons.Default.BatteryChargingFull, null) },
+        modifier = Modifier.clickable(enabled = !ignoring) {
+            runCatching {
+                context.startActivity(
+                    android.content.Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                        .setData(android.net.Uri.parse("package:" + context.packageName))
+                )
+            }
+        },
+    )
+    ListItem(
+        headlineContent = { Text("Системные настройки уведомлений") },
+        supportingContent = { Text("Звук, всплывающие окна, значок на иконке") },
+        leadingContent = { Icon(Icons.Default.Settings, null) },
+        modifier = Modifier.clickable {
+            runCatching {
+                context.startActivity(
+                    android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                )
+            }
+        },
+    )
     Text(
-        "Уведомления приходят, пока приложение работает в фоне. Отключить звук для отдельного чата можно в его меню.",
+        "Отключить звук для отдельного чата, группы или канала можно в его меню.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(16.dp),

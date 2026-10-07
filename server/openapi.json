@@ -3,7 +3,7 @@
  "info": {
   "title": "RyzikChat API",
   "version": "1",
-  "description": "Открытое API мессенджера RyzikChat. С ним можно написать клиент для любой платформы: Windows, iOS, веб, бот.\n\n**Авторизация:** заголовок `Authorization: Bearer <token>` (токен из /api/auth/login).\n\n**Реальное время:** WebSocket `/ws?token=<token>`. Сервер присылает JSON-события `message.new`, `message.updated`, `chat.new`, `chat.updated`, `chat.removed`, `typing`, `read`, `presence`, `user.updated`, `call.signal`. Клиент может слать `{type:\"typing\",chatId}`, `{type:\"call.signal\",to,data}`, `{type:\"ping\"}`.\n\n**Шифрование:** сообщения шифруются на клиенте, формат описан в PROTOCOL.md в репозитории."
+  "description": "Открытое API мессенджера RyzikChat. С ним можно написать клиент для любой платформы: Windows, iOS, веб, бот.\n\n**Авторизация:** заголовок `Authorization: Bearer <token>` (токен из /api/auth/login).\n\n**Реальное время:** WebSocket `/ws?token=<token>`. Сервер присылает JSON-события `message.new`, `message.updated`, `chat.new`, `chat.updated`, `chat.removed`, `typing`, `read`, `presence`, `user.updated`, `call.signal`, `reaction` (кто-то отреагировал на ваше сообщение). В `chat.new` поле `by` — кто добавил. Клиент может слать `{type:\"typing\",chatId}`, `{type:\"call.signal\",to,data}`, `{type:\"ping\"}`.\n\n**Шифрование:** сообщения шифруются на клиенте, формат описан в PROTOCOL.md в репозитории."
  },
  "servers": [
   {

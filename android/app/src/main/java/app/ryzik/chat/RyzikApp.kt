@@ -1,25 +1,20 @@
 package app.ryzik.chat
 
-import android.Manifest
 import android.app.Application
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
-import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
 import app.ryzik.chat.call.CallManager
-import app.ryzik.chat.call.CallNotifications
+import app.ryzik.chat.data.AuthState
 import app.ryzik.chat.data.ChatRepository
+import app.ryzik.chat.data.Notice
 import app.ryzik.chat.data.Prefs
+import app.ryzik.chat.notify.ConnectionService
+import app.ryzik.chat.notify.Notifier
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -33,68 +28,79 @@ class RyzikApp : Application() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
+    private fun foreground() = ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+
     override fun onCreate() {
         super.onCreate()
         instance = this
         prefs = Prefs(this)
         repo = ChatRepository(this, prefs)
         calls = CallManager(this, repo)
-        createChannel()
-        CallNotifications.createChannel(this)
+        Notifier.createChannels(this)
+
+        // Фоновая служба: пока вы вошли и она включена, сообщения и звонки приходят при закрытом приложении.
+        scope.launch {
+            combine(repo.auth, prefs.settings) { a, s -> a is AuthState.LoggedIn && s.backgroundConnection }
+                .distinctUntilChanged()
+                .collect { on -> if (on) ConnectionService.start(this@RyzikApp) else ConnectionService.stop(this@RyzikApp) }
+        }
+
+        // Новые сообщения
         scope.launch {
             repo.incoming.collect { (chat, msg) ->
                 val s = prefs.settings.first()
-                val foreground = ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
                 if (!s.notifications || chat.muted) return@collect
                 if ((chat.type == "group" || chat.type == "channel") && !s.groupNotifications) return@collect
-                if (foreground && repo.openChatId == chat.id) return@collect
-                if (foreground) return@collect
-                val sender = repo.users.value[msg.senderId]?.displayName ?: "Новое сообщение"
-                val title = when (chat.type) {
-                    "group" -> "$sender · ${chat.title}"
-                    "channel" -> chat.title
-                    else -> sender
-                }
+                val fg = foreground()
+                if (fg && repo.openChatId == chat.id) return@collect
+                if (fg && !s.inAppNotifications) return@collect
+                val sender = repo.users.value[msg.senderId]?.displayName
+                    ?: runCatching { repo.loadUser(msg.senderId).displayName }.getOrNull()
+                    ?: "Новое сообщение"
                 val text = if (s.notificationPreview) {
-                    msg.content?.let { repo.previewText(msg.type, it) } ?: "🔒 Сообщение"
+                    msg.content?.let { repo.previewText(msg.type, it).ifBlank { "Сообщение" } } ?: "🔒 Сообщение"
                 } else "Новое сообщение"
-                notify(chat.id, title, text, s.vibrate)
+                val isGroup = chat.type == "group" || chat.type == "channel"
+                Notifier.showMessage(
+                    this@RyzikApp,
+                    chatId = chat.id,
+                    chatTitle = repo.chatTitle(chat),
+                    isGroup = isGroup,
+                    senderId = msg.senderId,
+                    senderName = if (chat.type == "channel") repo.chatTitle(chat) else sender,
+                    text = text,
+                    time = msg.createdAt,
+                    vibrate = s.vibrate,
+                    canReply = chat.type != "channel" || chat.myRole == "owner" || chat.myRole == "admin",
+                )
+            }
+        }
+
+        // Реакции и добавление в группы
+        scope.launch {
+            repo.notices.collect { n ->
+                val s = prefs.settings.first()
+                if (!s.notifications) return@collect
+                when (n) {
+                    is Notice.AddedToChat -> {
+                        val who = n.by?.displayName ?: "Кто-то"
+                        val title = n.chat.title
+                        val text = if (n.chat.type == "channel") "$who добавил вас в канал «$title»" else "$who добавил вас в группу «$title»"
+                        Notifier.showEvent(this@RyzikApp, "added_${n.chat.id}", title, text, n.chat.id, iconName = title)
+                    }
+                    is Notice.ReactionOnMine -> {
+                        if (!s.reactionNotifications || n.chat.muted) return@collect
+                        if (foreground() && repo.openChatId == n.chat.id) return@collect
+                        val who = n.user?.displayName ?: "Кто-то"
+                        val what = n.preview.takeIf { it.isNotBlank() }?.let { " на «${it.take(60)}»" } ?: " на ваше сообщение"
+                        Notifier.showEvent(this@RyzikApp, "reaction_${n.messageId}", who, "${n.emoji} Реакция$what", n.chat.id, iconName = who)
+                    }
+                }
             }
         }
     }
 
-    private fun createChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val ch = NotificationChannel(CHANNEL, "Сообщения", NotificationManager.IMPORTANCE_HIGH)
-            getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
-        }
-    }
-
-    private fun notify(chatId: String, title: String, text: String, vibrate: Boolean) {
-        if (Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) return
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra(MainActivity.EXTRA_CHAT_ID, chatId)
-        }
-        val pi = PendingIntent.getActivity(this, chatId.hashCode(), intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val n = NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setAutoCancel(true)
-            .setContentIntent(pi)
-            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .apply { if (!vibrate) setVibrate(longArrayOf(0)) }
-            .build()
-        NotificationManagerCompat.from(this).notify(chatId.hashCode(), n)
-    }
-
     companion object {
-        const val CHANNEL = "messages"
         lateinit var instance: RyzikApp
             private set
     }

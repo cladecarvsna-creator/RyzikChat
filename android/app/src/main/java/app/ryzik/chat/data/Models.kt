@@ -128,4 +128,8 @@ data class RealtimeEvent(
     val action: String? = null,
     val from: String? = null,
     val data: JsonObject? = null,
+    /** chat.new: кто добавил; reaction: id сообщения и эмодзи. */
+    val by: String? = null,
+    val messageId: String? = null,
+    val emoji: String? = null,
 )

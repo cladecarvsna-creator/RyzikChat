@@ -4,7 +4,10 @@ import android.content.Context
 import android.media.AudioManager
 import android.media.Ringtone
 import android.media.RingtoneManager
+import app.ryzik.chat.RyzikApp
 import app.ryzik.chat.data.ChatRepository
+import app.ryzik.chat.notify.Notifier
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -143,6 +146,7 @@ class CallManager(private val context: Context, private val repo: ChatRepository
         val s = _state.value
         if (s.phase != CallPhase.Incoming) return
         stopRinging()
+        Notifier.cancelCall(context)
         _state.update { it.copy(phase = CallPhase.Connecting, speaker = it.video, cameraOn = it.video) }
         scope.launch {
             try {
@@ -213,7 +217,10 @@ class CallManager(private val context: Context, private val repo: ChatRepository
             val video = d["video"]?.jsonPrimitive?.booleanOrNull == true
             _state.value = CallState(CallPhase.Incoming, from, callId, video)
             startRinging()
-            CallNotifications.showIncoming(context, repo.users.value[from]?.displayName ?: "Входящий звонок", video)
+            val name = repo.users.value[from]?.displayName
+                ?: runCatching { repo.loadUser(from).displayName }.getOrNull()
+                ?: "Входящий звонок"
+            if (RyzikApp.instance.prefs.settings.first().callNotifications) Notifier.showIncomingCall(context, name, video)
             timeoutJob = scope.launch {
                 delay(50_000)
                 if (_state.value.phase == CallPhase.Incoming && _state.value.callId == callId) finish("Пропущенный звонок")
@@ -319,7 +326,7 @@ class CallManager(private val context: Context, private val repo: ChatRepository
             scope.launch {
                 when (newState) {
                     PeerConnection.PeerConnectionState.CONNECTED -> {
-                        CallNotifications.cancel(context)
+                        Notifier.cancelCall(context)
                         _state.update { if (it.phase == CallPhase.Connecting || it.phase == CallPhase.Outgoing) it.copy(phase = CallPhase.Active, startedAt = System.currentTimeMillis()) else it }
                     }
                     PeerConnection.PeerConnectionState.FAILED -> finish("Связь потеряна")
@@ -376,9 +383,16 @@ class CallManager(private val context: Context, private val repo: ChatRepository
 
     @Suppress("DEPRECATION")
     private fun finish(reason: String) {
+        val before = _state.value
+        if (before.phase == CallPhase.Incoming && reason != "Звонок отклонён") {
+            // Не ответили: оставляем уведомление «Пропущенный звонок».
+            val name = repo.users.value[before.peerId]?.displayName ?: "Собеседник"
+            val chatId = repo.chats.value.firstOrNull { c -> c.type == "direct" && c.members.any { it.user.id == before.peerId } }?.id
+            Notifier.missedCall(context, before.peerId, name, before.video, chatId)
+        }
         timeoutJob?.cancel()
         stopRinging()
-        CallNotifications.cancel(context)
+        Notifier.cancelCall(context)
         _localVideo.value = null
         _remoteVideo.value = null
         runCatching { capturer?.stopCapture() }

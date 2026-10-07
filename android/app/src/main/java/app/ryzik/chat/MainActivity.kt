@@ -67,6 +67,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         pendingChat.value = intent?.getStringExtra(EXTRA_CHAT_ID)
+        handleCallAction(intent)
         val app = application as RyzikApp
         setContent {
             val settings by app.prefs.settings.collectAsState(initial = null)
@@ -102,10 +103,25 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         intent.getStringExtra(EXTRA_CHAT_ID)?.let { pendingChat.value = it }
+        handleCallAction(intent)
+    }
+
+    /** «Ответить» в уведомлении о звонке. Без доступа к микрофону просто открываем экран звонка. */
+    private fun handleCallAction(intent: Intent?) {
+        if (intent?.getStringExtra(EXTRA_CALL_ACTION) != "accept") return
+        intent.removeExtra(EXTRA_CALL_ACTION)
+        val app = application as RyzikApp
+        app.calls.state.value.let { st ->
+            val needCam = st.video
+            val ok = androidx.core.content.ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED &&
+                (!needCam || androidx.core.content.ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED)
+            if (ok) app.calls.accept()
+        }
     }
 
     companion object {
         const val EXTRA_CHAT_ID = "chat_id"
+        const val EXTRA_CALL_ACTION = "call_action"
     }
 }
 

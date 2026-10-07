@@ -330,7 +330,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
       created = true;
     }
     const view = chatView(chat.id, req.userId);
-    if (created) hub.sendToUsers([other], { type: 'chat.new', chat: chatView(chat.id, other) });
+    if (created) hub.sendToUsers([other], { type: 'chat.new', chat: chatView(chat.id, other), by: req.userId });
     res.status(created ? 201 : 200).json(view);
   });
 
@@ -340,7 +340,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
     const ids = [...new Set([req.userId, ...(req.body?.memberIds ?? []).map(String)])]
       .filter((id) => getUserRow.get(id));
     const chatId = tx(db, () => createChat({ type: 'group', title, createdBy: req.userId, members: ids }));
-    for (const id of ids) if (id !== req.userId) hub.sendToUsers([id], { type: 'chat.new', chat: chatView(chatId, id) });
+    for (const id of ids) if (id !== req.userId) hub.sendToUsers([id], { type: 'chat.new', chat: chatView(chatId, id), by: req.userId });
     res.status(201).json(chatView(chatId, req.userId));
   });
 
@@ -414,7 +414,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
     for (const id of (req.body?.userIds ?? []).map(String)) {
       if (getUserRow.get(id) && add.run(chat.id, id, 'member', now()).changes) added.push(id);
     }
-    for (const id of added) hub.sendToUsers([id], { type: 'chat.new', chat: chatView(chat.id, id) });
+    for (const id of added) hub.sendToUsers([id], { type: 'chat.new', chat: chatView(chat.id, id), by: req.userId });
     broadcastChat(chat.id, { type: 'chat.updated', chatId: chat.id });
     res.json(chatView(chat.id, req.userId));
   });
@@ -531,6 +531,10 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
     }
     const msg = publicMessage(getMessageRow.get(row.id));
     broadcastChat(row.chat_id, { type: 'message.updated', message: msg });
+    // Автору сообщения — отдельное событие, чтобы показать уведомление «отреагировал ❤️».
+    if (emoji && row.sender_id !== req.userId) {
+      hub.sendToUsers([row.sender_id], { type: 'reaction', chatId: row.chat_id, messageId: row.id, userId: req.userId, emoji });
+    }
     res.json(msg);
   });
 
