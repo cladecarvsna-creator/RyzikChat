@@ -31,7 +31,31 @@ data class User(
     val emojiStatus: String? = null,
     /** Премиум: оформление профиля. */
     val profileStyle: ProfileStyle? = null,
+    /** Для текущего пользователя: в контактах ли этот человек и заблокирован ли он. */
+    val isContact: Boolean = false,
+    val isBlocked: Boolean = false,
+    /** Служебный аккаунт RyzikChat Info. */
+    val isService: Boolean = false,
+    /** Только в /api/me: привязанная почта. */
+    val email: String? = null,
+    val emailVerified: Boolean = false,
+    val emailAvailable: Boolean = false,
 )
+
+/** Ответ на вход: либо сразу сессия, либо нужен код подтверждения. */
+@Serializable
+data class LoginResponse(
+    val token: String? = null,
+    val user: User? = null,
+    val encryptedPrivateKey: String? = null,
+    val needCode: Boolean = false,
+    val challengeId: String? = null,
+    val sentTo: List<String> = emptyList(),
+    val emailHint: String? = null,
+)
+
+@Serializable
+data class EmailChallenge(val challengeId: String, val emailHint: String? = null)
 
 /** Оформление профиля с Премиумом. Цвета в виде #RRGGBB. */
 @Serializable
@@ -86,6 +110,11 @@ data class Chat(
     /** Открытый: ищется и вступить может любой. Частный: только по ссылке. */
     val isPublic: Boolean = false,
     val inviteCode: String? = null,
+    /** Служебный чат RyzikChat Info. */
+    val isService: Boolean = false,
+    /** Личный чат: собеседник у меня в контактах / заблокирован мной. */
+    val peerIsContact: Boolean = false,
+    val peerBlocked: Boolean = false,
     val createdBy: String = "",
     val createdAt: Long = 0,
     val members: List<ChatMember> = emptyList(),

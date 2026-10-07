@@ -61,7 +61,8 @@ class AccountWatcher(private val context: Context, val account: SavedAccount) {
             var backoff = 1000L
             while (true) {
                 val closed = CompletableDeferred<Int>()
-                val wsUrl = api.baseUrl.replaceFirst("http", "ws") + "/ws?token=" + api.token
+                // active=0: соединение только для уведомлений, «в сети» из-за него не показываем.
+                val wsUrl = api.baseUrl.replaceFirst("http", "ws") + "/ws?token=" + api.token + "&active=0"
                 val ws = api.http.newWebSocket(Request.Builder().url(wsUrl).build(), object : WebSocketListener() {
                     override fun onOpen(webSocket: WebSocket, response: okhttp3.Response) { backoff = 1000L }
                     override fun onMessage(webSocket: WebSocket, text: String) {

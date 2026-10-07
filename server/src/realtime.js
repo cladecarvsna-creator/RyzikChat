@@ -4,7 +4,8 @@ import { WebSocketServer } from 'ws';
  * Хаб WebSocket-подключений. Один пользователь может быть онлайн с нескольких устройств.
  * Клиент подключается к /ws?token=..., сервер шлёт JSON-события:
  *   message.new / message.updated / chat.new / chat.updated / chat.removed / read / typing / presence / user.updated
- * Клиент может слать: { type: "typing", chatId } и { type: "ping" }.
+ * Клиент может слать: { type: "typing", chatId }, { type: "ping" } и { type: "presence", active }.
+ * «В сети» — только пока приложение открыто: фоновое соединение подключается с ?active=0.
  */
 export class Hub {
   constructor() {
@@ -47,7 +48,21 @@ export class Hub {
   }
 
   isOnline(userId) {
+    for (const ws of this.sockets.get(userId) ?? []) if (ws.active) return true;
+    return false;
+  }
+
+  /** Есть ли хоть одно подключение (даже фоновое): туда можно доставить звонок. */
+  isConnected(userId) {
     return (this.sockets.get(userId)?.size ?? 0) > 0;
+  }
+
+  /** Сообщает собеседникам, если пользователь появился в сети или ушёл. */
+  presenceChanged(userId, wasOnline) {
+    const now = this.isOnline(userId);
+    if (now === wasOnline) return;
+    this.locals?.touchLastSeen(userId);
+    this.broadcastUser(userId, { type: 'presence', userId, online: now, lastSeen: Date.now() });
   }
 
   sendToUsers(userIds, event) {
@@ -78,10 +93,11 @@ export class Hub {
       }
       const wasOnline = this.isOnline(userId);
       if (!this.sockets.has(userId)) this.sockets.set(userId, new Set());
+      ws.active = url.searchParams.get('active') !== '0';
       this.sockets.get(userId).add(ws);
       ws.isAlive = true;
-      locals.touchLastSeen(userId);
-      if (!wasOnline) this.broadcastUser(userId, { type: 'presence', userId, online: true, lastSeen: Date.now() });
+      if (ws.active) locals.touchLastSeen(userId);
+      this.presenceChanged(userId, wasOnline);
       this.replayPendingCall(userId, ws);
 
       ws.on('pong', () => { ws.isAlive = true; });
@@ -93,8 +109,8 @@ export class Hub {
           this.sendToUsers(others, { type: 'typing', chatId: msg.chatId, userId, action: msg.action ?? 'typing' });
         } else if (msg.type === 'call.signal' && typeof msg.to === 'string' && msg.data && typeof msg.data === 'object') {
           // Сигналы WebRTC (offer/answer/ice/hangup…) пересылаем, только если у людей есть общий чат.
-          if (msg.to !== userId && locals.sharedChatPeers(userId).includes(msg.to)) {
-            const delivered = this.isOnline(msg.to);
+          if (msg.to !== userId && locals.sharedChatPeers(userId).includes(msg.to) && !locals.isBlocked(userId, msg.to)) {
+            const delivered = this.isConnected(msg.to);
             this.trackCallSignal(userId, msg.to, msg.data);
             this.sendToUsers([msg.to], { type: 'call.signal', from: userId, data: msg.data });
             if (!delivered && msg.data.kind === 'offer') {
@@ -102,18 +118,20 @@ export class Hub {
               ws.send(JSON.stringify({ type: 'call.signal', from: msg.to, data: { kind: 'waiting', callId: msg.data.callId } }));
             }
           }
+        } else if (msg.type === 'presence') {
+          const was = this.isOnline(userId);
+          ws.active = !!msg.active;
+          this.presenceChanged(userId, was);
         } else if (msg.type === 'ping') {
           ws.send(JSON.stringify({ type: 'pong' }));
         }
       });
       ws.on('close', () => {
+        const was = this.isOnline(userId);
         const set = this.sockets.get(userId);
         set?.delete(ws);
-        if (set && set.size === 0) {
-          this.sockets.delete(userId);
-          locals.touchLastSeen(userId);
-          this.broadcastUser(userId, { type: 'presence', userId, online: false, lastSeen: Date.now() });
-        }
+        if (set && set.size === 0) this.sockets.delete(userId);
+        this.presenceChanged(userId, was);
       });
     });
 

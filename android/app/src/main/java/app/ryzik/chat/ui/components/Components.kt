@@ -70,9 +70,10 @@ fun Avatar(
     modifier: Modifier = Modifier,
     online: Boolean = false,
     saved: Boolean = false,
+    service: Boolean = false,
 ) {
     Box(modifier.size(size)) {
-        val base = avatarPalette[abs(name.hashCode()) % avatarPalette.size]
+        val base = if (service) MaterialTheme.colorScheme.primary else avatarPalette[abs(name.hashCode()) % avatarPalette.size]
         Box(
             Modifier
                 .size(size)
@@ -82,6 +83,7 @@ fun Avatar(
         ) {
             when {
                 saved -> Icon(Icons.Default.Bookmark, null, tint = Color.White, modifier = Modifier.size(size * 0.5f))
+                service -> Icon(Icons.Default.Verified, null, tint = Color.White, modifier = Modifier.size(size * 0.55f))
                 else -> Text(
                     initials(name),
                     color = Color.White,
@@ -89,7 +91,7 @@ fun Avatar(
                     fontSize = (size.value * 0.38f).sp,
                 )
             }
-            if (url != null && !saved) {
+            if (url != null && !saved && !service) {
                 AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(size).clip(CircleShape))
             }
         }

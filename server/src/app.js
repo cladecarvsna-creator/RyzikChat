@@ -7,6 +7,7 @@ import { tx } from './db.js';
 import { DOCS_HTML } from './docs.js';
 
 const now = () => Date.now();
+export const SYSTEM_ID = 'ryzikchat-info';
 const newId = () => crypto.randomUUID();
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
@@ -40,7 +41,7 @@ function verifyPassword(password, stored) {
  * Создаёт express-приложение. `hub` — объект с методами sendToUsers / isOnline
  * (реализован в realtime.js), через него REST-запросы рассылают события по WebSocket.
  */
-export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
+export function createApp({ db, dataDir, hub, adminUsernames = [], mailer = null }) {
   const filesDir = path.join(dataDir, 'files');
   fs.mkdirSync(filesDir, { recursive: true });
 
@@ -133,6 +134,9 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
       description: chat.description ?? '',
       avatarFileId: chat.avatar_file_id ?? null,
       isPublic: !!chat.is_public,
+      // Служебный чат RyzikChat Info: сюда приходят коды входа.
+      isService: chat.created_by === SYSTEM_ID,
+      ...(chat.type === 'direct' ? directFlags(chat.id, userId) : {}),
       // Ссылку-приглашение видят владелец и админы, а в открытых — все участники.
       inviteCode: me && (chat.is_public || ['owner', 'admin'].includes(me.role)) ? chat.invite_code ?? null : null,
       createdBy: chat.created_by,
@@ -186,6 +190,82 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
     return Object.keys(out).length ? JSON.stringify(out) : null;
   }
 
+  // ---------- служебный чат, коды, блокировка ----------
+
+  const CODE_TTL_MS = 10 * 60_000;
+  const hashCode = (code) => crypto.createHash('sha256').update(code).digest('hex');
+  const maskEmail = (e) => e.replace(/^(.)(.*)(@.*)$/, (_m, a, b, c) => a + '*'.repeat(Math.min(b.length, 5)) + c);
+
+  /** Проверяет код подтверждения. Пять неверных попыток — и код сгорает. */
+  function checkCode(id, kind, code, userId = null) {
+    const row = db.prepare('SELECT * FROM codes WHERE id = ? AND kind = ?').get(id, kind);
+    if (!row || (userId && row.user_id !== userId) || row.expires_at < now() || row.attempts >= 5) {
+      if (row) db.prepare('DELETE FROM codes WHERE id = ?').run(id);
+      throw new HttpError(400, 'code_expired', 'Код устарел. Запросите новый');
+    }
+    if (hashCode(code.trim()) !== row.code_hash) {
+      db.prepare('UPDATE codes SET attempts = attempts + 1 WHERE id = ?').run(id);
+      throw new HttpError(400, 'bad_code', 'Неверный код');
+    }
+    db.prepare('DELETE FROM codes WHERE id = ?').run(id);
+    return row;
+  }
+
+  // Системный пользователь, от имени которого пишет RyzikChat Info. Войти под ним нельзя.
+  if (!getUserRow.get(SYSTEM_ID)) {
+    db.prepare(`INSERT INTO users (id, username, display_name, password_hash, bio, public_key, encrypted_private_key, created_at)
+      VALUES (?, 'ryzikchat_info', 'RyzikChat Info', ?, 'Официальные уведомления RyzikChat', '', '', ?)`)
+      .run(SYSTEM_ID, 'disabled:' + crypto.randomBytes(16).toString('hex'), now());
+  }
+
+  /** Личный служебный чат пользователя с RyzikChat Info (закреплён сверху). */
+  function ensureInfoChat(userId) {
+    const key = 'info:' + userId;
+    const existing = db.prepare('SELECT id FROM chats WHERE direct_key = ?').get(key);
+    if (existing) return existing.id;
+    const id = newId();
+    db.prepare(`INSERT INTO chats (id, type, title, description, created_by, created_at, direct_key, is_public)
+      VALUES (?, 'channel', 'RyzikChat Info', 'Коды для входа и важные уведомления', ?, ?, ?, 0)`).run(id, SYSTEM_ID, now(), key);
+    db.prepare("INSERT INTO chat_members (chat_id, user_id, role, joined_at) VALUES (?, ?, 'owner', ?)").run(id, SYSTEM_ID, now());
+    db.prepare("INSERT INTO chat_members (chat_id, user_id, role, pinned, joined_at) VALUES (?, ?, 'subscriber', 1, ?)").run(id, userId, now());
+    hub.sendToUsers([userId], { type: 'chat.new', chat: chatView(id, userId) });
+    return id;
+  }
+
+  /** Сообщение от RyzikChat Info. Как в каналах, не шифруется. */
+  function postInfo(userId, text) {
+    const chatId = ensureInfoChat(userId);
+    const msg = tx(db, () => {
+      const chat = getChatRow.get(chatId);
+      const seq = chat.last_seq + 1;
+      const id = newId();
+      db.prepare('UPDATE chats SET last_seq = ? WHERE id = ?').run(seq, chatId);
+      db.prepare(`INSERT INTO messages (id, chat_id, seq, sender_id, type, payload, created_at) VALUES (?, ?, ?, ?, 'text', ?, ?)`)
+        .run(id, chatId, seq, SYSTEM_ID, JSON.stringify({ v: 0, plain: { text } }), now());
+      return publicMessage(getMessageRowById.get(id));
+    });
+    hub.sendToUsers([userId], { type: 'message.new', message: msg });
+  }
+  const getMessageRowById = db.prepare('SELECT * FROM messages WHERE id = ?');
+
+  const blockedStmt = db.prepare('SELECT 1 FROM blocks WHERE user_id = ? AND blocked_id = ?');
+  const contactStmt = db.prepare('SELECT 1 FROM contacts WHERE user_id = ? AND contact_id = ?');
+  /** Заблокировал ли `owner` пользователя `other`. */
+  const isBlocked = (owner, other) => !!blockedStmt.get(owner, other);
+
+  /** Пользователь глазами `viewerId`: в контактах ли он и заблокирован ли. */
+  function userFor(id, viewerId) {
+    const u = getUser(id);
+    if (!u) return null;
+    return { ...u, isContact: !!contactStmt.get(viewerId, id), isBlocked: isBlocked(viewerId, id), isService: id === SYSTEM_ID };
+  }
+
+  function directFlags(chatId, userId) {
+    const peer = memberIds(chatId).find((id) => id !== userId);
+    if (!peer) return {};
+    return { peerIsContact: !!contactStmt.get(userId, peer), peerBlocked: isBlocked(userId, peer) };
+  }
+
   // ---------- auth ----------
 
   const sessionStmt = db.prepare('SELECT user_id FROM sessions WHERE token = ?');
@@ -213,7 +293,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
     return token;
   }
 
-  app.get('/api/health', (_req, res) => res.json({ ok: true, name: 'RyzikChat', version: '0.4.0', apiVersion: 1 }));
+  app.get('/api/health', (_req, res) => res.json({ ok: true, name: 'RyzikChat', version: '0.5.0', apiVersion: 1 }));
 
   // Открытое описание API — чтобы можно было написать клиент под любое устройство.
   app.get('/api/openapi.json', (_req, res) => res.sendFile(path.join(import.meta.dirname, '..', 'openapi.json')));
@@ -234,14 +314,16 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
     }
     const result = tx(db, () => {
       const id = newId();
-      const first = db.prepare('SELECT COUNT(*) AS n FROM users').get().n === 0;
+      const first = db.prepare('SELECT COUNT(*) AS n FROM users WHERE id != ?').get(SYSTEM_ID).n === 0;
       const isAdmin = first || adminUsernames.includes(username.toLowerCase());
       db.prepare(`INSERT INTO users (id, username, display_name, password_hash, public_key, encrypted_private_key,
         is_admin, created_at, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(id, username, name, hashPassword(password), publicKey, encryptedPrivateKey, isAdmin ? 1 : 0, now(), now());
       createChat({ type: 'saved', title: 'Избранное', createdBy: id, members: [id] });
+      ensureInfoChat(id);
       return { id, token: createSession(id, device) };
     });
+    postInfo(result.id, `Добро пожаловать в RyzikChat! 👋\n\nЭто служебный чат. Сюда будут приходить коды для входа с новых устройств. Никому их не сообщайте.`);
     res.status(201).json({ token: result.token, user: getUser(result.id), encryptedPrivateKey });
   });
 
@@ -251,8 +333,38 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
     if (!row || typeof password !== 'string' || !verifyPassword(password, row.password_hash)) {
       throw new HttpError(401, 'bad_credentials', 'Неверное имя пользователя или пароль');
     }
+    const sessions = db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE user_id = ?').get(row.id).n;
+    const email = row.email_verified && mailer ? row.email : null;
+    // Если аккаунт уже открыт на другом устройстве или привязана почта — нужен код подтверждения.
+    if (sessions > 0 || email) {
+      const code = String(crypto.randomInt(100000, 1000000));
+      const id = newId();
+      db.prepare('INSERT INTO codes (id, user_id, kind, code_hash, data, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(id, row.id, 'login', hashCode(code), String(device ?? '').slice(0, 100), now() + CODE_TTL_MS);
+      const sentTo = [];
+      if (sessions > 0) {
+        ensureInfoChat(row.id);
+        postInfo(row.id, `Код для входа в RyzikChat: ${code}\n\nКто-то входит в ваш аккаунт с устройства «${String(device || 'неизвестно').slice(0, 60)}». ` +
+          'Никому не сообщайте этот код. Если это не вы, смените пароль в настройках.');
+        sentTo.push('chat');
+      }
+      if (email) {
+        sentTo.push('email');
+        mailer({ to: email, subject: `Код для входа в RyzikChat: ${code}`, text: `Ваш код для входа в RyzikChat: ${code}\n\nЕсли это не вы, просто проигнорируйте письмо и смените пароль.` })
+          .catch((e) => console.error('Не удалось отправить письмо:', e.message));
+      }
+      return res.json({ needCode: true, challengeId: id, sentTo, emailHint: email ? maskEmail(email) : null });
+    }
     const token = createSession(row.id, device);
     res.json({ token, user: publicUser(row), encryptedPrivateKey: row.encrypted_private_key });
+  });
+
+  app.post('/api/auth/login/confirm', (req, res) => {
+    const { challengeId, code } = req.body ?? {};
+    const row = checkCode(String(challengeId ?? ''), 'login', String(code ?? ''));
+    const user = getUserRow.get(row.user_id);
+    const token = createSession(user.id, row.data);
+    res.json({ token, user: publicUser(user), encryptedPrivateKey: user.encrypted_private_key });
   });
 
   app.use('/api', auth);
@@ -280,7 +392,85 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
 
   // ---------- users ----------
 
-  app.get('/api/me', (req, res) => res.json(getUser(req.userId)));
+  const meView = (id) => {
+    const row = getUserRow.get(id);
+    return { ...publicUser(row), email: row.email ?? null, emailVerified: !!row.email_verified, emailAvailable: !!mailer };
+  };
+
+  app.get('/api/me', (req, res) => res.json(meView(req.userId)));
+
+  // ---------- почта ----------
+
+  app.put('/api/me/email', async (req, res, next) => {
+    try {
+      const email = String(req.body?.email ?? '').trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200) throw new HttpError(400, 'bad_email', 'Неверный адрес почты');
+      if (!mailer) throw new HttpError(503, 'email_unavailable', 'На сервере не настроена отправка писем (SMTP)');
+      const code = String(crypto.randomInt(100000, 1000000));
+      db.prepare("DELETE FROM codes WHERE user_id = ? AND kind = 'email'").run(req.userId);
+      const id = newId();
+      db.prepare('INSERT INTO codes (id, user_id, kind, code_hash, data, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(id, req.userId, 'email', hashCode(code), email, now() + CODE_TTL_MS);
+      try {
+        await mailer({ to: email, subject: `Код подтверждения RyzikChat: ${code}`, text: `Ваш код для привязки почты к RyzikChat: ${code}` });
+      } catch (e) {
+        console.error('Не удалось отправить письмо:', e.message);
+        throw new HttpError(502, 'email_failed', 'Не удалось отправить письмо. Проверьте адрес');
+      }
+      res.json({ challengeId: id, emailHint: maskEmail(email) });
+    } catch (e) { next(e); }
+  });
+
+  app.post('/api/me/email/verify', (req, res) => {
+    const row = checkCode(String(req.body?.challengeId ?? ''), 'email', String(req.body?.code ?? ''), req.userId);
+    db.prepare('UPDATE users SET email = ?, email_verified = 1 WHERE id = ?').run(row.data, req.userId);
+    res.json(meView(req.userId));
+  });
+
+  app.delete('/api/me/email', (req, res) => {
+    db.prepare('UPDATE users SET email = NULL, email_verified = 0 WHERE id = ?').run(req.userId);
+    res.json(meView(req.userId));
+  });
+
+  // ---------- контакты и блокировка ----------
+
+  app.get('/api/contacts', (req, res) => {
+    const rows = db.prepare(`SELECT u.* FROM contacts c JOIN users u ON u.id = c.contact_id
+      WHERE c.user_id = ? ORDER BY u.display_name COLLATE NOCASE`).all(req.userId);
+    res.json(rows.map(publicUser));
+  });
+
+  app.put('/api/contacts/:id', (req, res) => {
+    if (!getUserRow.get(req.params.id) || req.params.id === req.userId || req.params.id === SYSTEM_ID) {
+      throw new HttpError(404, 'user_not_found', 'Пользователь не найден');
+    }
+    db.prepare('INSERT OR IGNORE INTO contacts (user_id, contact_id, created_at) VALUES (?, ?, ?)').run(req.userId, req.params.id, now());
+    res.json(userFor(req.params.id, req.userId));
+  });
+
+  app.delete('/api/contacts/:id', (req, res) => {
+    db.prepare('DELETE FROM contacts WHERE user_id = ? AND contact_id = ?').run(req.userId, req.params.id);
+    res.json(userFor(req.params.id, req.userId));
+  });
+
+  app.get('/api/blocks', (req, res) => {
+    const rows = db.prepare('SELECT u.* FROM blocks b JOIN users u ON u.id = b.blocked_id WHERE b.user_id = ?').all(req.userId);
+    res.json(rows.map(publicUser));
+  });
+
+  app.put('/api/blocks/:id', (req, res) => {
+    if (!getUserRow.get(req.params.id) || req.params.id === req.userId || req.params.id === SYSTEM_ID) {
+      throw new HttpError(404, 'user_not_found', 'Пользователь не найден');
+    }
+    db.prepare('INSERT OR IGNORE INTO blocks (user_id, blocked_id, created_at) VALUES (?, ?, ?)').run(req.userId, req.params.id, now());
+    db.prepare('DELETE FROM contacts WHERE user_id = ? AND contact_id = ?').run(req.userId, req.params.id);
+    res.json(userFor(req.params.id, req.userId));
+  });
+
+  app.delete('/api/blocks/:id', (req, res) => {
+    db.prepare('DELETE FROM blocks WHERE user_id = ? AND blocked_id = ?').run(req.userId, req.params.id);
+    res.json(userFor(req.params.id, req.userId));
+  });
 
   app.patch('/api/me', (req, res) => {
     const { displayName, bio, avatarFileId, emojiStatus, profileStyle } = req.body ?? {};
@@ -328,13 +518,13 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
     const q = String(req.query.q ?? '').trim().replace(/^@/, '');
     if (!q) return res.json([]);
     const like = `%${q.replace(/[%_\\]/g, (c) => '\\' + c)}%`;
-    const rows = db.prepare(`SELECT * FROM users WHERE id != ? AND (username LIKE ? ESCAPE '\\' OR display_name LIKE ? ESCAPE '\\')
-      ORDER BY username LIMIT 30`).all(req.userId, like, like);
+    const rows = db.prepare(`SELECT * FROM users WHERE id != ? AND id != ? AND (username LIKE ? ESCAPE '\\' OR display_name LIKE ? ESCAPE '\\')
+      ORDER BY username LIMIT 30`).all(req.userId, SYSTEM_ID, like, like);
     res.json(rows.map(publicUser));
   });
 
   app.get('/api/users/:id', (req, res) => {
-    const u = getUser(req.params.id);
+    const u = userFor(req.params.id, req.userId);
     if (!u) throw new HttpError(404, 'user_not_found', 'Пользователь не найден');
     res.json(u);
   });
@@ -342,6 +532,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
   // ---------- chats ----------
 
   app.get('/api/chats', (req, res) => {
+    ensureInfoChat(req.userId);
     const ids = db.prepare('SELECT chat_id FROM chat_members WHERE user_id = ?').all(req.userId).map((r) => r.chat_id);
     const chats = ids.map((id) => chatView(id, req.userId)).filter(Boolean);
     chats.sort((a, b) => (b.lastMessage?.createdAt ?? b.createdAt) - (a.lastMessage?.createdAt ?? a.createdAt));
@@ -514,6 +705,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
     const chat = getChatRow.get(req.params.id);
     const target = req.params.userId;
     if (!['group', 'channel'].includes(chat.type)) throw new HttpError(400, 'not_group', 'Это не группа и не канал');
+    if (chat.created_by === SYSTEM_ID) throw new HttpError(400, 'service_chat', 'Служебный чат нельзя покинуть');
     if (target !== req.userId && m.role !== 'owner') throw new HttpError(403, 'forbidden', 'Только владелец');
     if (target === req.userId && m.role === 'owner' && chat.type === 'channel') {
       throw new HttpError(400, 'owner_leave', 'Владелец не может покинуть свой канал');
@@ -557,6 +749,12 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
     const member = requireMember(req.params.id, req.userId);
     if (getChatRow.get(req.params.id).type === 'channel' && !['owner', 'admin'].includes(member.role)) {
       throw new HttpError(403, 'forbidden', 'Писать в канал могут только его админы');
+    }
+    const target = getChatRow.get(req.params.id);
+    if (target.created_by === SYSTEM_ID) throw new HttpError(403, 'forbidden', 'В служебный чат писать нельзя');
+    if (target.type === 'direct') {
+      const peer = memberIds(target.id).find((id) => id !== req.userId);
+      if (peer && isBlocked(peer, req.userId)) throw new HttpError(403, 'blocked', 'Пользователь ограничил отправку вам сообщений');
     }
     const { type = 'text', payload, replyTo, forwardedFrom, clientId } = req.body ?? {};
     if (!MESSAGE_TYPES.has(type)) throw new HttpError(400, 'bad_type', 'Неизвестный тип сообщения');
@@ -754,6 +952,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
       JOIN chat_members m2 ON m1.chat_id = m2.chat_id WHERE m1.user_id = ?`).all(userId).map((r) => r.user_id);
   app.locals.resolveToken = (token) => sessionStmt.get(String(token))?.user_id ?? null;
   app.locals.isMember = (chatId, userId) => !!membershipStmt.get(chatId, userId);
+  app.locals.isBlocked = (userId, byWhom) => isBlocked(byWhom, userId);
   app.locals.touchLastSeen = (userId) => db.prepare('UPDATE users SET last_seen = ? WHERE id = ?').run(now(), userId);
 
   return app;

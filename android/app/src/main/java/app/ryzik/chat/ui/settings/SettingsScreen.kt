@@ -122,7 +122,7 @@ enum class SettingsSection(val title: String, val subtitle: String, val icon: Im
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    onBack: () -> Unit,
+    onBack: (() -> Unit)?,
     onOpenSection: (SettingsSection) -> Unit,
     onOpenAdmin: () -> Unit,
     onOpenSaved: () -> Unit,
@@ -156,13 +156,14 @@ fun SettingsScreen(
         topBar = {
             LargeTopAppBar(
                 title = { Text("Настройки") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
+                navigationIcon = { if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
                 scrollBehavior = scroll,
             )
         },
     ) { padding ->
         LazyColumn(Modifier.fillMaxSize(), contentPadding = padding) {
-            item {
+            // Во вкладке «Настройки» профиль не дублируем: он на соседней вкладке «Профиль».
+            if (onBack != null) item {
                 Surface(
                     shape = RoundedCornerShape(28.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -349,7 +350,7 @@ fun SettingsSectionScreen(section: SettingsSection, onBack: () -> Unit, onOpenTe
         topBar = {
             LargeTopAppBar(
                 title = { Text(section.title) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
+                navigationIcon = { if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
                 scrollBehavior = scroll,
             )
         },
@@ -502,7 +503,8 @@ private fun ChatSettings(s: AppSettings, update: ((AppSettings) -> AppSettings) 
     SwitchRow("Отправка по Enter", "Новая строка — через Shift+Enter на физической клавиатуре", s.sendByEnter) { v -> update { it.copy(sendByEnter = v) } }
     SwitchRow("Свайп для ответа", "Потяните сообщение влево, чтобы ответить", s.swipeToReply) { v -> update { it.copy(swipeToReply = v) } }
     SwitchRow("Крупные эмодзи", "Сообщения из 1–3 эмодзи показываются большими", s.bigEmoji) { v -> update { it.copy(bigEmoji = v) } }
-    SwitchRow("Эмодзи в стиле iOS", "Объёмные эмодзи вместо системных. Выключение применится после перезапуска приложения", s.iosEmoji) { v -> update { it.copy(iosEmoji = v) } }
+    SwitchRow("Свои эмодзи", "Объёмные эмодзи вместо системных. Выключение применится после перезапуска приложения", s.iosEmoji) { v -> update { it.copy(iosEmoji = v) } }
+    EmojiFontSection(enabled = s.iosEmoji)
     Header("Быстрая реакция (двойное касание)")
     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         itemsIndexed(QuickReactions) { _, e ->
@@ -591,6 +593,11 @@ private fun PrivacySettings(s: AppSettings, update: ((AppSettings) -> AppSetting
     var changing by remember { mutableStateOf(false) }
     var info by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { sessions = runCatching { repo.api.sessions() }.getOrDefault(emptyList()) }
+
+    Header("Почта")
+    EmailSection()
+    Header("Заблокированные")
+    BlockedSection()
 
     Header("Сквозное шифрование")
     Surface(

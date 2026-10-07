@@ -2,7 +2,7 @@
  "openapi": "3.0.3",
  "info": {
   "title": "RyzikChat API",
-  "version": "1",
+  "version": "0.5.0",
   "description": "Открытое API мессенджера RyzikChat. С ним можно написать клиент для любой платформы: Windows, iOS, веб, бот.\n\n**Авторизация:** заголовок `Authorization: Bearer <token>` (токен из /api/auth/login).\n\n**Реальное время:** WebSocket `/ws?token=<token>`. Сервер присылает JSON-события `message.new`, `message.updated`, `chat.new`, `chat.updated`, `chat.removed`, `typing`, `read`, `presence`, `user.updated`, `call.signal`, `reaction` (кто-то отреагировал на ваше сообщение). В `chat.new` поле `by` — кто добавил. Клиент может слать `{type:\"typing\",chatId}`, `{type:\"call.signal\",to,data}`, `{type:\"ping\"}`.\n\n**Шифрование:** сообщения шифруются на клиенте, формат описан в PROTOCOL.md в репозитории."
  },
  "servers": [
@@ -128,7 +128,8 @@
       }
      }
     },
-    "security": []
+    "security": [],
+    "description": "Если у аккаунта уже есть активные сессии или привязана подтверждённая почта, вместо токена приходит {needCode, challengeId, sentTo, emailHint}: 6-значный код отправлен в чат «RyzikChat Info» и/или на почту. Вход завершается через /api/auth/login/confirm."
    }
   },
   "/api/auth/logout": {
@@ -1579,6 +1580,279 @@
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/Chat"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/auth/login/confirm": {
+   "post": {
+    "summary": "Подтвердить вход кодом",
+    "tags": [
+     "Аккаунт"
+    ],
+    "security": [],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "challengeId": {
+          "type": "string"
+         },
+         "code": {
+          "type": "string"
+         }
+        }
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Auth"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/me/email": {
+   "put": {
+    "summary": "Привязать почту (отправляет код)",
+    "tags": [
+     "Аккаунт"
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "email": {
+          "type": "string"
+         }
+        }
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "challengeId": {
+           "type": "string"
+          },
+          "email": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "summary": "Отвязать почту",
+    "tags": [
+     "Аккаунт"
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    }
+   }
+  },
+  "/api/me/email/verify": {
+   "post": {
+    "summary": "Подтвердить почту кодом",
+    "tags": [
+     "Аккаунт"
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "challengeId": {
+          "type": "string"
+         },
+         "code": {
+          "type": "string"
+         }
+        }
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/User"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/contacts": {
+   "get": {
+    "summary": "Мои контакты",
+    "tags": [
+     "Пользователи"
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/User"
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/contacts/{id}": {
+   "parameters": [
+    {
+     "name": "id",
+     "in": "path",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    }
+   ],
+   "put": {
+    "summary": "Добавить в контакты",
+    "tags": [
+     "Пользователи"
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/User"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "summary": "Убрать из контактов",
+    "tags": [
+     "Пользователи"
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/User"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/blocks": {
+   "get": {
+    "summary": "Заблокированные",
+    "tags": [
+     "Пользователи"
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/User"
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/blocks/{id}": {
+   "parameters": [
+    {
+     "name": "id",
+     "in": "path",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    }
+   ],
+   "put": {
+    "summary": "Заблокировать (убирает из контактов; он не сможет писать и звонить)",
+    "tags": [
+     "Пользователи"
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/User"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "summary": "Разблокировать",
+    "tags": [
+     "Пользователи"
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/User"
         }
        }
       }

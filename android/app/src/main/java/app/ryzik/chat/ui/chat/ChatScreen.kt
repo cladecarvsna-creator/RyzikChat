@@ -1,6 +1,16 @@
 package app.ryzik.chat.ui.chat
 
 import app.ryzik.chat.notify.Notifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material3.ButtonDefaults
 import kotlinx.coroutines.delay
 import app.ryzik.chat.ui.components.formatDuration
 import app.ryzik.chat.ui.chats.subscribersText
@@ -309,99 +319,22 @@ fun ChatScreen(
         input = ""
     }
 
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(wallpaperColors(settings.wallpaper)))) {
-        Column(Modifier.fillMaxSize()) {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
-                title = {
-                    Row(Modifier.clickable(onClick = onOpenInfo), verticalAlignment = Alignment.CenterVertically) {
-                        Avatar(
-                            title,
-                            repo.avatarUrl(if (chat?.type == "direct") peer?.avatarFileId else chat?.avatarFileId),
-                            40.dp,
-                            online = peer?.online == true,
-                            saved = chat?.type == "saved",
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                                if (peer != null) BadgeIcons(peer.badges, peer.isAdmin, 16.dp, peer.isPremium, peer.emojiStatus)
-                            }
-                            AnimatedContent(
-                                targetState = when {
-                                    typingHere.isNotEmpty() && settings.showTyping -> "typing"
-                                    else -> "status"
-                                },
-                                label = "subtitle",
-                                transitionSpec = { (slideInVertically { it } + fadeIn()) togetherWith (slideOutVertically { -it } + fadeOut()) },
-                            ) { s ->
-                                if (s == "typing") Row(verticalAlignment = Alignment.CenterVertically) {
-                                    val who = if (chat?.type == "group") (users[typingHere.first()]?.displayName ?: "") + " " else ""
-                                    Text("${who}печатает", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                                    Spacer(Modifier.width(4.dp))
-                                    TypingDots(MaterialTheme.colorScheme.primary, 4.dp)
-                                } else Text(
-                                    when (chat?.type) {
-                                        "saved" -> "только для вас"
-                                        "group" -> "участников: ${chat.members.size}"
-                                        "channel" -> subscribersText(chat.memberCount)
-                                        else -> peer?.let { formatLastSeen(it.online, it.lastSeen) } ?: ""
-                                    },
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = if (peer?.online == true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
-                },
-                actions = {
-                    if (chat?.type == "direct" && peer != null) {
-                        IconButton(onClick = { startCall(false) }) { Icon(Icons.Default.Call, "Звонок") }
-                        IconButton(onClick = { startCall(true) }) { Icon(Icons.Default.Videocam, "Видеозвонок") }
-                    }
-                    Box {
-                        IconButton(onClick = { showMenu = true }) { Icon(Icons.Default.MoreVert, "Ещё") }
-                        DropdownMenu(showMenu, onDismissRequest = { showMenu = false }) {
-                            if (chat != null) {
-                                DropdownMenuItem(
-                                    text = { Text(if (chat.muted) "Включить звук" else "Без звука") },
-                                    leadingIcon = { Icon(if (chat.muted) Icons.Default.Notifications else Icons.Default.NotificationsOff, null) },
-                                    onClick = { showMenu = false; scope.launch { runCatching { repo.setMuted(chatId, !chat.muted) } } },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(if (chat.pinned) "Открепить чат" else "Закрепить чат") },
-                                    leadingIcon = { Icon(Icons.Default.PushPin, null) },
-                                    onClick = { showMenu = false; scope.launch { runCatching { repo.setPinned(chatId, !chat.pinned) } } },
-                                )
-                            }
-                            if (chat?.type == "channel" && chat.myRole != null && chat.myRole != "owner") {
-                                DropdownMenuItem(
-                                    text = { Text("Отписаться") },
-                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ExitToApp, null) },
-                                    onClick = {
-                                        showMenu = false
-                                        scope.launch { runCatching { repo.leave(chatId) }.onSuccess { onBack() }.onFailure { error = it.userMessage() } }
-                                    },
-                                )
-                            }
-                            DropdownMenuItem(
-                                text = { Text("Информация") },
-                                leadingIcon = { Icon(Icons.Default.Lock, null) },
-                                onClick = { showMenu = false; onOpenInfo() },
-                            )
-                        }
-                    }
-                },
-            )
+    val wallpaper = wallpaperColors(settings.wallpaper)
+    val density = LocalDensity.current
+    var topH by remember { mutableIntStateOf(0) }
+    var bottomH by remember { mutableIntStateOf(0) }
+    val topDp = with(density) { topH.toDp() }
+    val bottomDp = with(density) { bottomH.toDp() }
+    val barPrefs = remember { context.getSharedPreferences("contact_bar", Context.MODE_PRIVATE) }
+    var contactBarHidden by remember(chatId) { mutableStateOf(barPrefs.getBoolean(chatId, false)) }
 
-            Box(Modifier.weight(1f)) {
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(wallpaper))) {
+            Box(Modifier.fillMaxSize()) {
                 LazyColumn(
                     state = listState,
                     reverseLayout = true,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 8.dp),
+                    contentPadding = PaddingValues(top = topDp + 8.dp, bottom = bottomDp + 8.dp),
                 ) {
                     if (reversed.isEmpty()) {
                         item(key = "hello") { EmptyChat(chat?.type == "saved", chat?.type == "channel") }
@@ -452,7 +385,7 @@ fun ChatScreen(
                 val unread = chat?.unread ?: 0
                 androidx.compose.animation.AnimatedVisibility(
                     showDown,
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = bottomDp + 12.dp),
                     enter = scaleIn(spring(Spring.DampingRatioMediumBouncy)) + fadeIn(),
                     exit = scaleOut() + fadeOut(),
                 ) {
@@ -465,7 +398,7 @@ fun ChatScreen(
 
                 androidx.compose.animation.AnimatedVisibility(
                     error != null,
-                    modifier = Modifier.align(Alignment.TopCenter).padding(8.dp),
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = topDp + 8.dp),
                     enter = slideInVertically() + fadeIn(),
                     exit = slideOutVertically() + fadeOut(),
                 ) {
@@ -475,9 +408,179 @@ fun ChatScreen(
                 }
             }
 
+            // Верхняя панель: отдельные «плавающие» кнопка назад, плашка с названием и аватар.
+            Column(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .onSizeChanged { topH = it.height }
+                    .background(Brush.verticalGradient(listOf(wallpaper.first().copy(alpha = 0.92f), wallpaper.first().copy(alpha = 0f))))
+                    .statusBarsPadding()
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+            ) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    FloatingCircle(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") }
+                    Spacer(Modifier.width(8.dp))
+                    Surface(
+                        onClick = onOpenInfo,
+                        shape = RoundedCornerShape(26.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        shadowElevation = 4.dp,
+                        modifier = Modifier.weight(1f).height(52.dp),
+                    ) {
+                        Row(Modifier.padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                                    if (chat?.isService == true) Icon(Icons.Default.Verified, "Официальный чат", Modifier.padding(start = 4.dp).size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                                    if (peer != null) BadgeIcons(peer.badges, peer.isAdmin, 16.dp, peer.isPremium, peer.emojiStatus)
+                                }
+                            AnimatedContent(
+                                targetState = when {
+                                    typingHere.isNotEmpty() && settings.showTyping -> "typing"
+                                    else -> "status"
+                                },
+                                label = "subtitle",
+                                transitionSpec = { (slideInVertically { it } + fadeIn()) togetherWith (slideOutVertically { -it } + fadeOut()) },
+                            ) { s ->
+                                if (s == "typing") Row(verticalAlignment = Alignment.CenterVertically) {
+                                    val who = if (chat?.type == "group") (users[typingHere.first()]?.displayName ?: "") + " " else ""
+                                    Text("${who}печатает", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                    Spacer(Modifier.width(4.dp))
+                                    TypingDots(MaterialTheme.colorScheme.primary, 4.dp)
+                                } else Text(
+                                    when {
+                                        chat?.isService == true -> "официальный чат"
+                                        else -> when (chat?.type) {
+                                        "saved" -> "только для вас"
+                                        "group" -> "участников: ${chat.members.size}"
+                                        "channel" -> subscribersText(chat.memberCount)
+                                        else -> peer?.let { formatLastSeen(it.online, it.lastSeen) } ?: ""
+                                        }
+                                    },
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (peer?.online == true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            }
+                            if (chat?.type == "direct" && peer != null && !chat.peerBlocked) {
+                                IconButton(onClick = { startCall(false) }) { Icon(Icons.Default.Call, "Звонок", tint = MaterialTheme.colorScheme.primary) }
+                            } else Spacer(Modifier.width(12.dp))
+                        }
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Box {
+                        Surface(
+                            onClick = { showMenu = true },
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            shadowElevation = 4.dp,
+                            modifier = Modifier.size(52.dp),
+                        ) {
+                            Box(Modifier.padding(3.dp)) {
+                                Avatar(
+                                    title,
+                                    repo.avatarUrl(if (chat?.type == "direct") peer?.avatarFileId else chat?.avatarFileId),
+                                    46.dp,
+                                    online = peer?.online == true,
+                                    saved = chat?.type == "saved",
+                                    service = chat?.isService == true,
+                                )
+                            }
+                        }
+                        DropdownMenu(showMenu, onDismissRequest = { showMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text(if (chat?.type == "direct") "Профиль" else "Информация") },
+                                leadingIcon = { Icon(Icons.Default.Info, null) },
+                                onClick = { showMenu = false; onOpenInfo() },
+                            )
+                            if (chat?.type == "direct" && peer != null && !chat.peerBlocked) {
+                                DropdownMenuItem(
+                                    text = { Text("Видеозвонок") },
+                                    leadingIcon = { Icon(Icons.Default.Videocam, null) },
+                                    onClick = { showMenu = false; startCall(true) },
+                                )
+                            }
+                            if (chat != null) {
+                                DropdownMenuItem(
+                                    text = { Text(if (chat.muted) "Включить звук" else "Без звука") },
+                                    leadingIcon = { Icon(if (chat.muted) Icons.Default.Notifications else Icons.Default.NotificationsOff, null) },
+                                    onClick = { showMenu = false; scope.launch { runCatching { repo.setMuted(chatId, !chat.muted) } } },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(if (chat.pinned) "Открепить чат" else "Закрепить чат") },
+                                    leadingIcon = { Icon(Icons.Default.PushPin, null) },
+                                    onClick = { showMenu = false; scope.launch { runCatching { repo.setPinned(chatId, !chat.pinned) } } },
+                                )
+                            }
+                            if (chat?.type == "direct" && peer != null && !peer.isService) {
+                                DropdownMenuItem(
+                                    text = { Text(if (chat.peerBlocked) "Разблокировать" else "Заблокировать", color = if (chat.peerBlocked) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error) },
+                                    leadingIcon = { Icon(Icons.Default.Block, null, tint = if (chat.peerBlocked) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error) },
+                                    onClick = {
+                                        showMenu = false
+                                        scope.launch { runCatching { repo.setBlocked(peer.id, !chat.peerBlocked) }.onFailure { error = it.userMessage() } }
+                                    },
+                                )
+                            }
+                            if (chat?.type == "channel" && chat.myRole != null && chat.myRole != "owner" && !chat.isService) {
+                                DropdownMenuItem(
+                                    text = { Text("Отписаться") },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ExitToApp, null) },
+                                    onClick = {
+                                        showMenu = false
+                                        scope.launch { runCatching { repo.leave(chatId) }.onSuccess { onBack() }.onFailure { error = it.userMessage() } }
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+                // Новый собеседник не в контактах: предлагаем добавить или заблокировать.
+                val showContactBar = chat?.type == "direct" && peer != null && !peer.isService &&
+                    !chat.peerIsContact && !chat.peerBlocked && !contactBarHidden
+                AnimatedVisibility(showContactBar, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                    Surface(
+                        shape = RoundedCornerShape(26.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        shadowElevation = 4.dp,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    ) {
+                        Row(Modifier.padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(
+                                onClick = { peer?.let { p -> scope.launch { runCatching { repo.setContact(p.id, true) }.onFailure { error = it.userMessage() } } } },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Icon(Icons.Default.PersonAdd, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Добавить контакт", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            TextButton(
+                                onClick = { peer?.let { p -> scope.launch { runCatching { repo.setBlocked(p.id, true) }.onFailure { error = it.userMessage() } } } },
+                                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Icon(Icons.Default.Block, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Заблокировать", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            IconButton(onClick = { contactBarHidden = true; barPrefs.edit().putBoolean(chatId, true).apply() }) {
+                                Icon(Icons.Default.Close, "Скрыть", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Нижняя панель: отдельные кнопка вложений, поле ввода и кнопка отправки.
+            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().onSizeChanged { bottomH = it.height }) {
             val canPost = chat == null || (chat.type != "channel" && (chat.myRole != null || chat.type == "direct" || chat.type == "saved")) ||
                 chat.myRole == "owner" || chat.myRole == "admin"
-            if (!canPost && chat != null) {
+            if (chat?.peerBlocked == true) {
+                BlockedBar(onUnblock = {
+                    peer?.let { p -> scope.launch { runCatching { repo.setBlocked(p.id, false) }.onFailure { error = it.userMessage() } } }
+                })
+            } else if (!canPost && chat != null) {
                 ChannelBar(
                     subscribed = chat.myRole != null,
                     joinText = if (chat.type == "group") "Вступить в группу" else "Подписаться",
@@ -487,11 +590,17 @@ fun ChatScreen(
                 )
             } else
             // Панель ответа/редактирования
-            Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-                Column(Modifier.navigationBarsPadding().imePadding()) {
+            Box {
+                Column(Modifier.navigationBarsPadding().imePadding().padding(horizontal = 8.dp, vertical = 6.dp)) {
                     AnimatedVisibility(replyTo != null || editing != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                         val target = editing ?: replyTo
-                        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = RoundedCornerShape(22.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            shadowElevation = 4.dp,
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                        ) {
+                        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(if (editing != null) Icons.Default.Edit else Icons.AutoMirrored.Filled.Reply, null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(12.dp))
                             if (target != null) {
@@ -506,10 +615,11 @@ fun ChatScreen(
                                 Icon(Icons.Default.Close, "Отмена")
                             }
                         }
+                        }
                     }
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp), verticalAlignment = Alignment.Bottom) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                         Box {
-                            IconButton(onClick = { showAttach = true }) { Icon(Icons.Default.AttachFile, "Прикрепить") }
+                            FloatingCircle(onClick = { showAttach = true }) { Icon(Icons.Default.AttachFile, "Прикрепить") }
                             DropdownMenu(showAttach, onDismissRequest = { showAttach = false }) {
                                 DropdownMenuItem(
                                     text = { Text("Фото или видео") },
@@ -526,8 +636,15 @@ fun ChatScreen(
                                 )
                             }
                         }
+                        Spacer(Modifier.width(6.dp))
+                        Surface(
+                            shape = RoundedCornerShape(26.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            shadowElevation = 4.dp,
+                            modifier = Modifier.weight(1f),
+                        ) {
                         if (recordingVoice) {
-                            VoiceRecordingBar(voiceElapsed, dragX, cancelDistance, Modifier.weight(1f).height(56.dp))
+                            VoiceRecordingBar(voiceElapsed, dragX, cancelDistance, Modifier.fillMaxWidth().height(52.dp))
                         } else TextField(
                             value = input,
                             onValueChange = {
@@ -539,13 +656,13 @@ fun ChatScreen(
                                 }
                             },
                             placeholder = { Text("Сообщение") },
-                            modifier = Modifier.weight(1f).heightIn(max = 160.dp),
-                            shape = RoundedCornerShape(24.dp),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp, max = 160.dp),
+                            shape = RoundedCornerShape(26.dp),
                             colors = TextFieldDefaults.colors(
-                                focusedIndicatorColor = MaterialTheme.colorScheme.surface.copy(alpha = 0f),
-                                unfocusedIndicatorColor = MaterialTheme.colorScheme.surface.copy(alpha = 0f),
-                                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
                             ),
                             keyboardOptions = KeyboardOptions(
                                 capitalization = KeyboardCapitalization.Sentences,
@@ -555,6 +672,7 @@ fun ChatScreen(
                             singleLine = settings.sendByEnter,
                             maxLines = 6,
                         )
+                        }
                         Spacer(Modifier.width(6.dp))
                         AnimatedContent(
                             targetState = input.isNotBlank(),
@@ -742,10 +860,37 @@ private fun copy(context: Context, text: String) {
     cm.setPrimaryClip(ClipData.newPlainText("message", text))
 }
 
+/** Круглая «плавающая» кнопка с тенью. */
+@Composable
+private fun FloatingCircle(onClick: () -> Unit, content: @Composable () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shadowElevation = 4.dp,
+        modifier = Modifier.size(52.dp),
+    ) { Box(contentAlignment = Alignment.Center) { content() } }
+}
+
+/** Вместо поля ввода, если собеседник заблокирован. */
+@Composable
+private fun BlockedBar(onUnblock: () -> Unit) {
+    Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 8.dp, vertical = 6.dp)) {
+        Surface(shape = RoundedCornerShape(26.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
+            Row(Modifier.padding(start = 20.dp, end = 4.dp, top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Block, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Пользователь заблокирован", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                TextButton(onClick = onUnblock) { Text("Разблокировать") }
+            }
+        }
+    }
+}
+
 @Composable
 private fun ChannelBar(subscribed: Boolean, joinText: String, muted: Boolean, onSubscribe: () -> Unit, onToggleMute: () -> Unit) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-        Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 8.dp, vertical = 6.dp)) {
+        Surface(shape = RoundedCornerShape(26.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
             AnimatedContent(subscribed, label = "sub", transitionSpec = { (scaleIn(spring(Spring.DampingRatioMediumBouncy)) + fadeIn()) togetherWith fadeOut() }) { sub ->
                 if (!sub) {
                     Button(onClick = onSubscribe, modifier = Modifier.fillMaxWidth().height(48.dp)) {

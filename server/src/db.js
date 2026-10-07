@@ -146,6 +146,34 @@ function migrate(db) {
   }
   if (!cols('chats').includes('invite_code')) db.exec('ALTER TABLE chats ADD COLUMN invite_code TEXT');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS chats_invite_code ON chats(invite_code)');
+  if (!cols('users').includes('email')) {
+    db.exec('ALTER TABLE users ADD COLUMN email TEXT');
+    db.exec('ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0');
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS contacts (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      contact_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, contact_id)
+    );
+    CREATE TABLE IF NOT EXISTS blocks (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      blocked_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, blocked_id)
+    );
+    -- Коды подтверждения: вход с нового устройства и привязка почты.
+    CREATE TABLE IF NOT EXISTS codes (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      code_hash TEXT NOT NULL,
+      data TEXT NOT NULL DEFAULT '',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      expires_at INTEGER NOT NULL
+    );
+  `);
 }
 
 /** Выполняет fn внутри транзакции. */

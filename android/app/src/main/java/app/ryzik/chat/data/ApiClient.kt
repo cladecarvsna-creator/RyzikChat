@@ -92,7 +92,29 @@ class ApiClient(
             put("username", username)
             put("password", password)
             put("device", device)
+        }, LoginResponse.serializer())
+
+    suspend fun confirmLogin(challengeId: String, code: String) =
+        call("POST", "/api/auth/login/confirm", buildJsonObject {
+            put("challengeId", challengeId)
+            put("code", code)
         }, AuthResponse.serializer())
+
+    // ---------- почта ----------
+
+    suspend fun startEmail(email: String) = call("PUT", "/api/me/email", buildJsonObject { put("email", email) }, EmailChallenge.serializer())
+    suspend fun verifyEmail(challengeId: String, code: String) =
+        call("POST", "/api/me/email/verify", buildJsonObject { put("challengeId", challengeId); put("code", code) }, User.serializer())
+    suspend fun removeEmail() = call("DELETE", "/api/me/email", null, User.serializer())
+
+    // ---------- контакты ----------
+
+    suspend fun contacts() = call("GET", "/api/contacts", null, ListSerializer(User.serializer()))
+    suspend fun setContact(userId: String, contact: Boolean) =
+        call(if (contact) "PUT" else "DELETE", "/api/contacts/$userId", null, User.serializer())
+    suspend fun blocks() = call("GET", "/api/blocks", null, ListSerializer(User.serializer()))
+    suspend fun setBlocked(userId: String, blocked: Boolean) =
+        call(if (blocked) "PUT" else "DELETE", "/api/blocks/$userId", null, User.serializer())
 
     suspend fun logout() = callUnit("POST", "/api/auth/logout")
     suspend fun sessions() = call("GET", "/api/sessions", null, ListSerializer(SessionInfo.serializer()))

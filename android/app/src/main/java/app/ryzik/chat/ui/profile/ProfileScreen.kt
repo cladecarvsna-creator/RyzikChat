@@ -1,6 +1,10 @@
 package app.ryzik.chat.ui.profile
 
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Link
@@ -75,28 +79,50 @@ import app.ryzik.chat.ui.components.NameWithBadges
 import app.ryzik.chat.ui.components.formatLastSeen
 import kotlinx.coroutines.launch
 
-/** Профиль пользователя. Администратор видит здесь управление бейджами. */
+/**
+ * Профиль пользователя. Администратор видит здесь управление бейджами.
+ * Свой профиль (вкладка «Профиль») можно менять: фото, имя, «о себе», оформление.
+ */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun ProfileScreen(userId: String, onBack: () -> Unit, onOpenChat: (String) -> Unit) {
+fun ProfileScreen(
+    userId: String,
+    onBack: (() -> Unit)?,
+    onOpenChat: (String) -> Unit,
+    onOpenProfileLook: () -> Unit = {},
+    onOpenSaved: () -> Unit = {},
+) {
     val repo = RyzikApp.instance.repo
     val users by repo.users.collectAsState()
+    val contacts by repo.contacts.collectAsState()
     val auth by repo.auth.collectAsState()
     val me = (auth as? AuthState.LoggedIn)?.me
-    val user = users[userId]
+    val isMe = userId == me?.id
+    val user = if (isMe) me else users[userId]
     val scope = rememberCoroutineScope()
     var allBadges by remember { mutableStateOf<List<Badge>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
+    var blocked by remember(userId) { mutableStateOf(false) }
+    var editing by remember { mutableStateOf(false) }
+    var name by remember { mutableStateOf("") }
+    var bio by remember { mutableStateOf("") }
+    var uploading by remember { mutableStateOf(false) }
+    val isContact = contacts.any { it.id == userId }
 
     LaunchedEffect(userId) {
-        runCatching { repo.loadUser(userId) }.onFailure { error = it.userMessage() }
+        runCatching { repo.loadUser(userId) }.onSuccess { blocked = it.isBlocked }.onFailure { error = it.userMessage() }
         if (me?.isAdmin == true) allBadges = runCatching { repo.badges() }.getOrDefault(emptyList())
     }
 
     Scaffold(topBar = {
         TopAppBar(
-            title = { Text("Профиль") },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
+            title = { Text(if (isMe) "Мой профиль" else "Профиль") },
+            navigationIcon = { if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
+            actions = {
+                if (isMe) IconButton(onClick = { name = me?.displayName.orEmpty(); bio = me?.bio.orEmpty(); editing = true }) {
+                    Icon(Icons.Default.Edit, "Изменить")
+                }
+            },
         )
     }) { padding ->
         Column(
@@ -112,7 +138,7 @@ fun ProfileScreen(userId: String, onBack: () -> Unit, onOpenChat: (String) -> Un
             app.ryzik.chat.ui.premium.ProfileHeader(
                 name = user.displayName,
                 avatarUrl = repo.avatarUrl(user.avatarFileId),
-                online = user.online,
+                online = user.online && !isMe,
                 isPremium = user.isPremium,
                 isAdmin = user.isAdmin,
                 emojiStatus = user.emojiStatus,
@@ -121,7 +147,7 @@ fun ProfileScreen(userId: String, onBack: () -> Unit, onOpenChat: (String) -> Un
                 avatarScale = pop.value,
             )
             Text("@${user.username}", color = MaterialTheme.colorScheme.primary)
-            Text(
+            if (!isMe && !user.isService) Text(
                 formatLastSeen(user.online, user.lastSeen),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -129,6 +155,69 @@ fun ProfileScreen(userId: String, onBack: () -> Unit, onOpenChat: (String) -> Un
             if (user.bio.isNotBlank()) {
                 Spacer(Modifier.height(12.dp))
                 Text(user.bio, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 32.dp))
+            }
+
+            if (isMe) {
+                val picker = androidx.activity.compose.rememberLauncherForActivityResult(
+                    androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia(),
+                ) { uri ->
+                    if (uri != null) {
+                        uploading = true
+                        scope.launch {
+                            runCatching { repo.updateProfile(avatarFileId = repo.uploadAvatar(uri)) }.onFailure { error = it.userMessage() }
+                            uploading = false
+                        }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 16.dp)) {
+                    ProfileAction(Icons.Default.CameraAlt, if (uploading) "Загрузка…" else "Фото", Modifier.weight(1f)) {
+                        picker.launch(
+                            androidx.activity.result.PickVisualMediaRequest(
+                                androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly,
+                            ),
+                        )
+                    }
+                    ProfileAction(Icons.Default.Edit, "Изменить", Modifier.weight(1f)) {
+                        name = user.displayName; bio = user.bio; editing = true
+                    }
+                    ProfileAction(Icons.Default.Palette, "Оформление", Modifier.weight(1f), onOpenProfileLook)
+                }
+                Spacer(Modifier.height(12.dp))
+                ElevatedCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                    ListItem(
+                        headlineContent = { Text("Избранное") },
+                        supportingContent = { Text("Ваши сохранённые сообщения") },
+                        leadingContent = { Icon(Icons.Default.Bookmark, null, tint = MaterialTheme.colorScheme.primary) },
+                        modifier = Modifier.clickable(onClick = onOpenSaved),
+                    )
+                }
+            } else if (!user.isService) {
+                Spacer(Modifier.height(20.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 16.dp)) {
+                    if (!blocked) ProfileAction(Icons.AutoMirrored.Filled.Chat, "Написать", Modifier.weight(1f)) {
+                        scope.launch { runCatching { repo.openDirect(user.id) }.onSuccess { onOpenChat(it.id) }.onFailure { error = it.userMessage() } }
+                    }
+                    if (!blocked) ProfileAction(
+                        if (isContact) Icons.Default.PersonRemove else Icons.Default.PersonAdd,
+                        if (isContact) "Убрать из контактов" else "В контакты",
+                        Modifier.weight(1f),
+                    ) {
+                        scope.launch { runCatching { repo.setContact(user.id, !isContact) }.onFailure { error = it.userMessage() } }
+                    }
+                    ProfileAction(
+                        Icons.Default.Block,
+                        if (blocked) "Разблокировать" else "Заблокировать",
+                        Modifier.weight(1f),
+                        danger = !blocked,
+                    ) {
+                        scope.launch {
+                            runCatching { repo.setBlocked(user.id, !blocked) }
+                                .onSuccess { blocked = !blocked }
+                                .onFailure { error = it.userMessage() }
+                        }
+                    }
+                }
             }
 
             if (user.badges.isNotEmpty() || user.isAdmin) {
@@ -140,17 +229,6 @@ fun ProfileScreen(userId: String, onBack: () -> Unit, onOpenChat: (String) -> Un
                 ) {
                     if (user.isAdmin) BadgeChip(Badge("admin", "🛡️", "Администратор", color = "#6750A4"))
                     user.badges.forEach { BadgeChip(it) }
-                }
-            }
-
-            if (user.id != me?.id) {
-                Spacer(Modifier.height(20.dp))
-                Button(onClick = {
-                    scope.launch { runCatching { repo.openDirect(user.id) }.onSuccess { onOpenChat(it.id) }.onFailure { error = it.userMessage() } }
-                }) {
-                    Icon(Icons.AutoMirrored.Filled.Chat, null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Написать")
                 }
             }
 
@@ -235,6 +313,51 @@ fun ProfileScreen(userId: String, onBack: () -> Unit, onOpenChat: (String) -> Un
             Spacer(Modifier.height(32.dp))
         }
     }
+
+    if (editing) {
+        AlertDialog(
+            onDismissRequest = { editing = false },
+            title = { Text("Профиль") },
+            text = {
+                Column {
+                    OutlinedTextField(name, { name = it.take(64) }, label = { Text("Имя") }, singleLine = true)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(bio, { bio = it.take(300) }, label = { Text("О себе") }, maxLines = 4)
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = name.isNotBlank(), onClick = {
+                    editing = false
+                    scope.launch { runCatching { repo.updateProfile(displayName = name.trim(), bio = bio.trim()) }.onFailure { error = it.userMessage() } }
+                }) { Text("Сохранить") }
+            },
+            dismissButton = { TextButton(onClick = { editing = false }) { Text("Отмена") } },
+        )
+    }
+}
+
+/** Кнопка-плитка под шапкой профиля. */
+@Composable
+private fun ProfileAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    modifier: Modifier = Modifier,
+    danger: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    androidx.compose.material3.Surface(
+        onClick = onClick,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = modifier,
+    ) {
+        Column(Modifier.padding(vertical = 12.dp, horizontal = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(icon, null, tint = color)
+            Spacer(Modifier.height(4.dp))
+            Text(label, style = MaterialTheme.typography.labelMedium, color = color, textAlign = TextAlign.Center, maxLines = 2)
+        }
+    }
 }
 
 /** Информация о чате: для личного — профиль собеседника, для группы — участники. */
@@ -298,10 +421,18 @@ fun ChatInfoScreen(
                                 avatarBusy = false
                             }
                         }
-                    } else Avatar(repo.chatTitle(chat), repo.avatarUrl(chat.avatarFileId), 110.dp, saved = chat.type == "saved")
+                    } else Avatar(repo.chatTitle(chat), repo.avatarUrl(chat.avatarFileId), 110.dp, saved = chat.type == "saved", service = chat.isService)
                     Spacer(Modifier.height(12.dp))
                     Text(repo.chatTitle(chat), style = MaterialTheme.typography.headlineSmall)
-                    if (isGroupOrChannel) {
+                    if (chat.isService) {
+                        Text("официальный чат RyzikChat", color = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            "Сюда приходят коды для входа в ваш аккаунт с других устройств и важные новости. Никому не сообщайте эти коды.",
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 24.dp),
+                        )
+                    } else if (isGroupOrChannel) {
                         val count = if (chat.type == "group") app.ryzik.chat.ui.channel.membersText(maxOf(chat.memberCount, chat.members.size))
                         else app.ryzik.chat.ui.chats.subscribersText(chat.memberCount)
                         val kind = when {
@@ -378,7 +509,7 @@ fun ChatInfoScreen(
                     modifier = Modifier.clickable { scope.launch { runCatching { repo.subscribe(chat.id) }.onFailure { infoError = it.userMessage() } } },
                 )
             }
-            if (chat.type == "channel") {
+            if (chat.type == "channel" && !chat.isService) {
                 if (chat.myRole != null) item {
                     ListItem(
                         headlineContent = { Text(if (chat.muted) "Включить звук" else "Выключить звук") },

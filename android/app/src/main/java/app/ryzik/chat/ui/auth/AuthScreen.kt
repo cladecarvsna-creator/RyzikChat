@@ -87,6 +87,7 @@ fun AuthScreen(onBack: () -> Unit, onOpenTerms: () -> Unit) {
     var showServer by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var codeStep by remember { mutableStateOf<app.ryzik.chat.data.LoginResponse?>(null) }
 
     LaunchedEffect(Unit) { server = repo.prefs.session.first().serverUrl }
 
@@ -106,13 +107,18 @@ fun AuthScreen(onBack: () -> Unit, onOpenTerms: () -> Unit) {
             try {
                 repo.setServer(server)
                 if (register) repo.register(username, displayName.ifBlank { username }, password)
-                else repo.login(username, password)
+                else codeStep = repo.login(username, password)
             } catch (e: Exception) {
                 error = e.userMessage()
             } finally {
                 loading = false
             }
         }
+    }
+
+    codeStep?.let { step ->
+        LoginCodeStep(step, onBack = { repo.cancelLoginCode(); codeStep = null })
+        return
     }
 
     Column(
@@ -281,5 +287,87 @@ fun AuthScreen(onBack: () -> Unit, onOpenTerms: () -> Unit) {
             )
         }
         Spacer(Modifier.height(16.dp))
+    }
+}
+
+/** Второй шаг входа: код из чата RyzikChat Info на другом устройстве или из письма. */
+@Composable
+private fun LoginCodeStep(step: app.ryzik.chat.data.LoginResponse, onBack: () -> Unit) {
+    val repo = RyzikApp.instance.repo
+    val scope = rememberCoroutineScope()
+    var code by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    fun confirm() {
+        if (code.length < 6 || loading) return
+        loading = true
+        scope.launch {
+            try {
+                repo.confirmLogin(code)
+            } catch (e: Exception) {
+                error = e.userMessage()
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    val where = buildList {
+        if ("chat" in step.sentTo) add("в чат «RyzikChat Info» на устройстве, где вы уже вошли")
+        if ("email" in step.sentTo) add("на почту ${step.emailHint.orEmpty()}")
+    }.joinToString(" и ")
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .imePadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp),
+    ) {
+        IconButton(onClick = onBack, modifier = Modifier.padding(top = 8.dp)) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад")
+        }
+        Spacer(Modifier.height(8.dp))
+        Text("Подтвердите вход", style = MaterialTheme.typography.headlineLarge)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Мы отправили код $where. Введите его здесь.",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(24.dp))
+        OutlinedTextField(
+            value = code,
+            onValueChange = { v -> code = v.filter { it.isDigit() }.take(6); error = null; if (code.length == 6) confirm() },
+            label = { Text("Код из 6 цифр") },
+            leadingIcon = { Icon(Icons.Default.Lock, null) },
+            singleLine = true,
+            textStyle = MaterialTheme.typography.headlineSmall.copy(letterSpacing = androidx.compose.ui.unit.TextUnit(6f, androidx.compose.ui.unit.TextUnitType.Sp)),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+        )
+        AnimatedVisibility(error != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+            Text(error.orEmpty(), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp))
+        }
+        Spacer(Modifier.height(24.dp))
+        Button(
+            onClick = { confirm() },
+            enabled = !loading && code.length == 6,
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            shape = RoundedCornerShape(28.dp),
+        ) {
+            if (loading) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.5.dp, color = MaterialTheme.colorScheme.onPrimary)
+            else Text("Войти", style = MaterialTheme.typography.titleMedium)
+        }
+        Spacer(Modifier.height(12.dp))
+        Text(
+            "Код действует 10 минут. Никому его не сообщайте: сотрудники RyzikChat никогда его не спрашивают.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }

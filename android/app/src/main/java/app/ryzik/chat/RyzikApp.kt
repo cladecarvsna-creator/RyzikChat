@@ -46,6 +46,15 @@ class RyzikApp : Application() {
         calls = CallManager(this, repo)
         Notifier.createChannels(this)
 
+        // «В сети» только пока приложение открыто, даже если фоновое соединение работает.
+        ProcessLifecycleOwner.get().lifecycle.addObserver(androidx.lifecycle.LifecycleEventObserver { _, e ->
+            when (e) {
+                Lifecycle.Event.ON_START -> repo.setAppActive(true)
+                Lifecycle.Event.ON_STOP -> repo.setAppActive(false)
+                else -> {}
+            }
+        })
+
         // Эмодзи в стиле iOS (выключение вступает в силу после перезапуска).
         scope.launch {
             prefs.settings.map { it.iosEmoji }.distinctUntilChanged().filter { it }.collect { IosEmoji.install(this@RyzikApp) }

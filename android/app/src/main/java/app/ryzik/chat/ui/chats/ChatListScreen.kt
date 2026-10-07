@@ -1,6 +1,10 @@
 package app.ryzik.chat.ui.chats
 
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Group
@@ -98,6 +102,44 @@ import app.ryzik.chat.ui.components.TypingDots
 import app.ryzik.chat.ui.components.formatListTime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/** Свайп чата влево — в архив (или обратно из архива). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ArchiveSwipe(enabled: Boolean, archived: Boolean, onSwiped: () -> Unit, modifier: Modifier, content: @Composable () -> Unit) {
+    if (!enabled) { Box(modifier) { content() }; return }
+    val currentOnSwiped by androidx.compose.runtime.rememberUpdatedState(onSwiped)
+    val state = rememberSwipeToDismissBoxState(
+        confirmValueChange = {
+            if (it == SwipeToDismissBoxValue.EndToStart) currentOnSwiped()
+            false // строка возвращается на место, а чат уезжает в архив сам
+        },
+        positionalThreshold = { it * 0.35f },
+    )
+    SwipeToDismissBox(
+        state = state,
+        enableDismissFromStartToEnd = false,
+        modifier = modifier,
+        backgroundContent = {
+            val active = state.targetValue == SwipeToDismissBoxValue.EndToStart
+            val bg by androidx.compose.animation.animateColorAsState(
+                if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer, label = "swipe",
+            )
+            val iconScale by animateFloatAsState(if (active) 1.2f else 0.9f, spring(Spring.DampingRatioMediumBouncy), label = "swipeIcon")
+            Row(
+                Modifier.fillMaxSize().background(bg).padding(horizontal = 24.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val tint = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(if (archived) Icons.Default.Unarchive else Icons.Default.Archive, null, Modifier.graphicsLayer { scaleX = iconScale; scaleY = iconScale }, tint = tint)
+                    Text(if (archived) "Вернуть" else "В архив", style = MaterialTheme.typography.labelSmall, color = tint)
+                }
+            }
+        },
+    ) { content() }
+}
 
 private enum class Filter(val title: String) { All("Все"), Unread("Непрочитанные"), Personal("Личные"), Groups("Группы"), Channels("Каналы") }
 
@@ -260,6 +302,12 @@ fun ChatListScreen(
                     }
                 }
                 items(visible, key = { it.id }) { chat ->
+                    ArchiveSwipe(
+                        enabled = chat.type != "saved" && !chat.isService,
+                        archived = chat.archived,
+                        onSwiped = { scope.launch { runCatching { repo.setArchived(chat.id, !chat.archived) } } },
+                        modifier = Modifier.animateItem(),
+                    ) {
                     ChatRow(
                         chat = chat,
                         title = repo.chatTitle(chat),
@@ -270,9 +318,10 @@ fun ChatListScreen(
                         compact = settings?.compactList == true,
                         avatarUrl = repo.avatarUrl(if (chat.type == "direct") repo.peerOf(chat)?.avatarFileId else chat.avatarFileId),
                         modifier = Modifier
-                            .animateItem()
+                            .background(MaterialTheme.colorScheme.surface)
                             .combinedClickable(onClick = { onOpenChat(chat.id) }, onLongClick = { menuChat = chat }),
                     )
+                    }
                 }
                 if (searching && foundUsers.isNotEmpty()) {
                     item(key = "people") {
@@ -361,14 +410,14 @@ fun ChatListScreen(
                 leadingContent = { Icon(if (chat.muted) Icons.Default.Notifications else Icons.Default.NotificationsOff, null) },
                 modifier = Modifier.combinedClickable(onClick = { act { repo.setMuted(chat.id, !chat.muted) } }),
             )
-            if (chat.type != "saved") {
+            if (chat.type != "saved" && !chat.isService) {
                 ListItem(
                     headlineContent = { Text(if (chat.archived) "Вернуть из архива" else "В архив") },
                     leadingContent = { Icon(if (chat.archived) Icons.Default.Unarchive else Icons.Default.Archive, null) },
                     modifier = Modifier.combinedClickable(onClick = { act { repo.setArchived(chat.id, !chat.archived) } }),
                 )
             }
-            if (chat.type == "channel" && chat.myRole != "owner") {
+            if (chat.type == "channel" && chat.myRole != "owner" && !chat.isService) {
                 ListItem(
                     headlineContent = { Text("Отписаться", color = MaterialTheme.colorScheme.error) },
                     leadingContent = { Icon(Icons.AutoMirrored.Filled.ExitToApp, null, tint = MaterialTheme.colorScheme.error) },
@@ -407,13 +456,14 @@ private fun ChatRow(
             .padding(horizontal = 12.dp, vertical = if (compact) 6.dp else 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Avatar(title, avatarUrl, avatarSize, online = peer?.online == true, saved = chat.type == "saved")
+        Avatar(title, avatarUrl, avatarSize, online = peer?.online == true, saved = chat.type == "saved", service = chat.isService)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                     Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                    if (chat.type == "channel") Icon(Icons.Default.Campaign, null, Modifier.padding(start = 4.dp).size(16.dp), tint = scheme.primary)
+                    if (chat.isService) Icon(Icons.Default.Verified, "Официальный чат", Modifier.padding(start = 4.dp).size(16.dp), tint = scheme.primary)
+                    else if (chat.type == "channel") Icon(Icons.Default.Campaign, null, Modifier.padding(start = 4.dp).size(16.dp), tint = scheme.primary)
                     if (peer != null) BadgeIcons(peer.badges, peer.isAdmin, 16.dp, peer.isPremium, peer.emojiStatus)
                     if (chat.muted) Icon(Icons.Default.NotificationsOff, null, Modifier.padding(start = 4.dp).size(14.dp), tint = scheme.outline)
                 }
@@ -446,7 +496,13 @@ private fun ChatRow(
                                 Spacer(Modifier.width(4.dp))
                             }
                             Text(
-                                preview.ifEmpty { if (chat.type == "saved") "Сохраняйте сюда важное" else "Нет сообщений" },
+                                preview.ifEmpty {
+                                    when {
+                                        chat.type == "saved" -> "Сохраняйте сюда важное"
+                                        chat.isService -> "Коды входа и важные новости"
+                                        else -> "Нет сообщений"
+                                    }
+                                },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = scheme.onSurfaceVariant,
                                 maxLines = if (compact) 1 else 2,

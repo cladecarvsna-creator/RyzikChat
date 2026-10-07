@@ -110,6 +110,14 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
     private val hasMore = ConcurrentHashMap<String, Boolean>()
     private val decryptCache = ConcurrentHashMap<String, Content?>()
 
+    /** Почта аккаунта (её видит только владелец). */
+    data class EmailState(val email: String? = null, val verified: Boolean = false, val available: Boolean = false)
+
+    private val _email = MutableStateFlow(EmailState())
+    val email: StateFlow<EmailState> = _email
+    private val _contacts = MutableStateFlow<List<User>>(emptyList())
+    val contacts: StateFlow<List<User>> = _contacts
+
     private val _users = MutableStateFlow<Map<String, User>>(emptyMap())
     val users: StateFlow<Map<String, User>> = _users.asStateFlow()
 
@@ -218,12 +226,67 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
         finishAuth(res, kp.privateKey)
     }
 
-    suspend fun login(username: String, password: String) = withContext(Dispatchers.Default) {
+    /** Вход ждёт код подтверждения: ключ для расшифровки держим только в памяти. */
+    private var pendingLogin: Pair<String, ByteArray>? = null
+
+    /** Вход. Возвращает null, если вход завершён, или куда отправлен код подтверждения. */
+    suspend fun login(username: String, password: String): LoginResponse? = withContext(Dispatchers.Default) {
         val keys = E2E.derivePasswordKeys(username, password)
         val res = api.login(username, keys.authKey, deviceName())
-        val priv = runCatching { E2E.openPrivateKey(res.encryptedPrivateKey, keys.vaultKey) }
+        if (res.needCode && res.challengeId != null) {
+            pendingLogin = res.challengeId to keys.vaultKey
+            return@withContext res
+        }
+        val priv = runCatching { E2E.openPrivateKey(res.encryptedPrivateKey!!, keys.vaultKey) }
             .getOrElse { throw IOException("Не удалось расшифровать ключи аккаунта") }
+        finishAuth(AuthResponse(res.token!!, res.user!!, res.encryptedPrivateKey!!), priv)
+        null
+    }
+
+    suspend fun confirmLogin(code: String) = withContext(Dispatchers.Default) {
+        val (challenge, vaultKey) = pendingLogin ?: throw IOException("Начните вход заново")
+        val res = api.confirmLogin(challenge, code.trim())
+        val priv = runCatching { E2E.openPrivateKey(res.encryptedPrivateKey, vaultKey) }
+            .getOrElse { throw IOException("Не удалось расшифровать ключи аккаунта") }
+        pendingLogin = null
         finishAuth(res, priv)
+    }
+
+    fun cancelLoginCode() { pendingLogin = null }
+
+    // ================= Почта =================
+
+
+    private fun updateEmail(me: User) { _email.value = EmailState(me.email, me.emailVerified, me.emailAvailable) }
+
+    suspend fun refreshEmail() { runCatching { api.me() }.onSuccess { updateEmail(it) } }
+    suspend fun startEmail(email: String): EmailChallenge = api.startEmail(email.trim())
+    suspend fun verifyEmail(challengeId: String, code: String) = updateEmail(api.verifyEmail(challengeId, code.trim()))
+    suspend fun removeEmail() = updateEmail(api.removeEmail())
+
+    // ================= Контакты =================
+
+
+    suspend fun refreshContacts() {
+        val list = api.contacts()
+        rememberUsers(list)
+        _contacts.value = list
+    }
+
+    suspend fun setContact(userId: String, contact: Boolean) {
+        val u = api.setContact(userId, contact)
+        rememberUsers(listOf(u))
+        _contacts.update { l -> if (contact) (l.filterNot { it.id == u.id } + u).sortedBy { it.displayName.lowercase() } else l.filterNot { it.id == u.id } }
+        _chats.update { l -> l.map { c -> if (c.type == "direct" && c.members.any { it.user.id == userId }) c.copy(peerIsContact = contact) else c } }
+    }
+
+    suspend fun setBlocked(userId: String, blocked: Boolean) {
+        val u = api.setBlocked(userId, blocked)
+        rememberUsers(listOf(u))
+        if (blocked) _contacts.update { l -> l.filterNot { it.id == userId } }
+        _chats.update { l ->
+            l.map { c -> if (c.type == "direct" && c.members.any { it.user.id == userId }) c.copy(peerBlocked = blocked, peerIsContact = c.peerIsContact && !blocked) else c }
+        }
     }
 
     private suspend fun finishAuth(res: AuthResponse, priv: ByteArray) {
@@ -241,6 +304,8 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
         scope.launch { prefs.updateAccountInfo(me.id, me.displayName, me.avatarFileId) }
         _auth.value = AuthState.LoggedIn(me)
         scope.launch { refreshChats() }
+        scope.launch { refreshEmail() }
+        scope.launch { runCatching { refreshContacts() } }
         connectSocket()
     }
 
@@ -271,6 +336,8 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
         _users.value = emptyMap()
         _typing.value = emptyMap()
         _readStates.value = emptyMap()
+        _contacts.value = emptyList()
+        _email.value = EmailState()
     }
 
     private suspend fun resetLocal() {
@@ -839,6 +906,14 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
 
     // ================= Реальное время =================
 
+    /** Приложение на экране: только тогда собеседники видят «в сети». */
+    @Volatile private var appActive = false
+
+    fun setAppActive(active: Boolean) {
+        appActive = active
+        socket?.send(if (active) "{\"type\":\"presence\",\"active\":true}" else "{\"type\":\"presence\",\"active\":false}")
+    }
+
     fun sendTyping(chatId: String) {
         socket?.send("""{"type":"typing","chatId":"$chatId"}""")
     }
@@ -849,7 +924,7 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
             var backoff = 1000L
             while (auth.value is AuthState.LoggedIn) {
                 val closed = kotlinx.coroutines.CompletableDeferred<Unit>()
-                val wsUrl = api.baseUrl.replaceFirst("http", "ws") + "/ws?token=" + api.token
+                val wsUrl = api.baseUrl.replaceFirst("http", "ws") + "/ws?token=" + api.token + "&active=" + (if (appActive) 1 else 0)
                 val ws = api.http.newWebSocket(Request.Builder().url(wsUrl).build(), object : WebSocketListener() {
                     override fun onOpen(webSocket: WebSocket, response: okhttp3.Response) {
                         _connected.value = true

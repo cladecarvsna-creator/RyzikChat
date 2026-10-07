@@ -55,6 +55,10 @@ import app.ryzik.chat.ui.auth.TermsScreen
 import app.ryzik.chat.ui.chat.ChatScreen
 import app.ryzik.chat.ui.chat.MediaViewer
 import app.ryzik.chat.ui.chats.ChatListScreen
+import app.ryzik.chat.ui.contacts.ContactsScreen
+import app.ryzik.chat.ui.home.HomeScreen
+import app.ryzik.chat.ui.home.HomeTab
+import androidx.compose.runtime.setValue
 import app.ryzik.chat.ui.newchat.NewChatScreen
 import app.ryzik.chat.ui.profile.ChatInfoScreen
 import app.ryzik.chat.ui.profile.ProfileScreen
@@ -200,6 +204,7 @@ private fun OnboardingNav(adding: Boolean) {
 private fun MainNav(pendingChat: String?, onPendingHandled: () -> Unit) {
     val nav = rememberNavController()
     val repo = RyzikApp.instance.repo
+    var tab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(HomeTab.Chats) }
 
     val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     LaunchedEffect(Unit) {
@@ -221,14 +226,37 @@ private fun MainNav(pendingChat: String?, onPendingHandled: () -> Unit) {
         popExitTransition = { slideOutHorizontally(tween(ANIM, easing = FastOutSlowInEasing)) { it } },
     ) {
         composable("chats") {
-            ChatListScreen(
-                onOpenChat = { nav.go("chat/$it") },
-                onNewChat = { nav.go("newchat") },
-                onNewGroup = { nav.go("newgroup") },
-                onNewChannel = { nav.go("newchannel") },
-                onOpenSettings = { nav.go("settings") },
-                onOpenProfile = { nav.go("profile/$it") },
-            )
+            HomeScreen(tab, onTab = { tab = it }) { t ->
+                when (t) {
+                    HomeTab.Chats -> ChatListScreen(
+                        onOpenChat = { nav.go("chat/$it") },
+                        onNewChat = { nav.go("newchat") },
+                        onNewGroup = { nav.go("newgroup") },
+                        onNewChannel = { nav.go("newchannel") },
+                        onOpenSettings = { tab = HomeTab.Profile },
+                        onOpenProfile = { nav.go("profile/$it") },
+                    )
+                    HomeTab.Contacts -> ContactsScreen(
+                        onOpenChat = { nav.go("chat/$it") },
+                        onOpenProfile = { nav.go("profile/$it") },
+                    )
+                    HomeTab.Profile -> ProfileScreen(
+                        userId = repo.myId.orEmpty(),
+                        onBack = null,
+                        onOpenChat = { nav.go("chat/$it") },
+                        onOpenProfileLook = { nav.go("profilelook") },
+                        onOpenSaved = { repo.savedChat()?.let { nav.go("chat/${it.id}") } },
+                    )
+                    HomeTab.Settings -> SettingsScreen(
+                        onBack = null,
+                        onOpenSection = { nav.go("settings/${it.name}") },
+                        onOpenAdmin = { nav.go("admin") },
+                        onOpenPremium = { nav.go("premium") },
+                        onOpenProfileLook = { nav.go("profilelook") },
+                        onOpenSaved = { repo.savedChat()?.let { nav.go("chat/${it.id}") } },
+                    )
+                }
+            }
         }
         composable("chat/{id}") { e ->
             val id = e.arguments?.getString("id") ?: return@composable
@@ -286,6 +314,7 @@ private fun MainNav(pendingChat: String?, onPendingHandled: () -> Unit) {
                 userId = e.arguments?.getString("id")!!,
                 onBack = { nav.popBackStack() },
                 onOpenChat = { id -> nav.navigate("chat/$id") { popUpTo("chats") } },
+                onOpenProfileLook = { nav.go("profilelook") },
             )
         }
         composable("settings") {
