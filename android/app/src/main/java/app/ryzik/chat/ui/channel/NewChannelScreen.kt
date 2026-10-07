@@ -42,7 +42,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import app.ryzik.chat.RyzikApp
 import app.ryzik.chat.data.userMessage
-import app.ryzik.chat.ui.components.Avatar
 import kotlinx.coroutines.launch
 
 /** Создание канала: название и описание. Писать в канал может только владелец и его админы. */
@@ -54,6 +53,8 @@ fun NewChannelScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
     var title by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    var isPublic by remember { mutableStateOf(true) }
+    var avatar by remember { mutableStateOf<android.net.Uri?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var shown by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { shown = true }
@@ -72,7 +73,10 @@ fun NewChannelScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
                 if (title.isBlank()) { error = "Придумайте название канала"; return@FloatingActionButton }
                 busy = true
                 scope.launch {
-                    runCatching { repo.createChannel(title.trim(), description.trim()) }
+                    runCatching {
+                        val fileId = avatar?.let { repo.uploadAvatar(it) }
+                        repo.createChannel(title.trim(), description.trim(), isPublic, fileId)
+                    }
                         .onSuccess { onOpenChat(it.id) }
                         .onFailure { error = it.userMessage() }
                     busy = false
@@ -88,9 +92,10 @@ fun NewChannelScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Box(Modifier.graphicsLayer { scaleX = pop; scaleY = pop }) {
-                if (title.isBlank()) {
-                    Icon(Icons.Default.Campaign, null, Modifier.size(96.dp), tint = MaterialTheme.colorScheme.primary)
-                } else Avatar(title, null, 96.dp)
+                if (title.isBlank() && avatar == null) {
+                    AvatarPicker("", null, 96.dp) { avatar = it }
+                    Icon(Icons.Default.Campaign, null, Modifier.size(56.dp).align(Alignment.Center), tint = androidx.compose.ui.graphics.Color.White)
+                } else AvatarPicker(title, avatar?.toString(), 96.dp) { avatar = it }
             }
             OutlinedTextField(
                 value = title,
@@ -106,10 +111,11 @@ fun NewChannelScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
                 minLines = 3,
                 modifier = Modifier.fillMaxWidth(),
             )
+            VisibilitySelector(isPublic, channel = true, onChange = { isPublic = it })
             if (error != null) Text(error!!, color = MaterialTheme.colorScheme.error)
             Text(
                 "В канал пишете вы и назначенные вами админы. Остальные подписываются, читают и ставят реакции. " +
-                    "Каналы публичные: их можно найти через поиск, поэтому сообщения в них не шифруются сквозным шифрованием.",
+                    "Сообщения в каналах не шифруются сквозным шифрованием, даже в частных.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

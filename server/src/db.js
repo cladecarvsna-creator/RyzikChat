@@ -113,6 +113,8 @@ export function openDb(dataDir) {
 function migrate(db) {
   const cols = (table) => db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
   if (!cols('users').includes('is_premium')) db.exec('ALTER TABLE users ADD COLUMN is_premium INTEGER NOT NULL DEFAULT 0');
+  if (!cols('users').includes('emoji_status')) db.exec('ALTER TABLE users ADD COLUMN emoji_status TEXT');
+  if (!cols('users').includes('profile_style')) db.exec('ALTER TABLE users ADD COLUMN profile_style TEXT');
   const chatsSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'chats'").get().sql;
   if (!chatsSql.includes("'channel'")) {
     db.exec(`
@@ -137,6 +139,13 @@ function migrate(db) {
       PRAGMA foreign_keys = ON;
     `);
   }
+  if (!cols('chats').includes('is_public')) {
+    db.exec('ALTER TABLE chats ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0');
+    // До этого все каналы были открытыми, а группы — только по приглашению.
+    db.exec("UPDATE chats SET is_public = 1 WHERE type = 'channel'");
+  }
+  if (!cols('chats').includes('invite_code')) db.exec('ALTER TABLE chats ADD COLUMN invite_code TEXT');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS chats_invite_code ON chats(invite_code)');
 }
 
 /** Выполняет fn внутри транзакции. */

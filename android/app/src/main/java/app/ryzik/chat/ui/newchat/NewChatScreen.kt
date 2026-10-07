@@ -80,6 +80,8 @@ fun NewChatScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, addToChatId:
     var groupTitle by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var isPublic by remember { mutableStateOf(false) }
+    var avatar by remember { mutableStateOf<android.net.Uri?>(null) }
 
     LaunchedEffect(query) {
         if (query.isBlank()) { results = emptyList(); return@LaunchedEffect }
@@ -107,7 +109,7 @@ fun NewChatScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, addToChatId:
             )
         },
         floatingActionButton = {
-            AnimatedVisibility(groupMode && selected.isNotEmpty(), enter = scaleIn(spring(Spring.DampingRatioMediumBouncy)), exit = scaleOut()) {
+            AnimatedVisibility(groupMode && (selected.isNotEmpty() || (addToChatId == null && groupTitle.isNotBlank())), enter = scaleIn(spring(Spring.DampingRatioMediumBouncy)), exit = scaleOut()) {
                 FloatingActionButton(onClick = {
                     if (busy) return@FloatingActionButton
                     if (addToChatId == null && groupTitle.isBlank()) { error = "Придумайте название группы"; return@FloatingActionButton }
@@ -118,7 +120,8 @@ fun NewChatScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, addToChatId:
                                 repo.addMembers(addToChatId, selected.map { it.id })
                                 onBack()
                             } else {
-                                val c = repo.createGroup(groupTitle.trim(), selected.map { it.id })
+                                val fileId = avatar?.let { repo.uploadAvatar(it) }
+                                val c = repo.createGroup(groupTitle.trim(), selected.map { it.id }, isPublic, avatarFileId = fileId)
                                 onOpenChat(c.id)
                             }
                         }.onFailure { error = it.userMessage() }
@@ -133,15 +136,23 @@ fun NewChatScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, addToChatId:
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             AnimatedVisibility(groupMode && addToChatId == null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-                OutlinedTextField(
-                    value = groupTitle,
-                    onValueChange = { groupTitle = it.take(128) },
-                    label = { Text("Название группы") },
-                    leadingIcon = { Icon(Icons.Default.Group, null) },
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                )
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        app.ryzik.chat.ui.channel.AvatarPicker(groupTitle, avatar?.toString(), 56.dp) { avatar = it }
+                        androidx.compose.foundation.layout.Spacer(Modifier.size(12.dp))
+                        OutlinedTextField(
+                            value = groupTitle,
+                            onValueChange = { groupTitle = it.take(128) },
+                            label = { Text("Название группы") },
+                            leadingIcon = { Icon(Icons.Default.Group, null) },
+                            singleLine = true,
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
+                    app.ryzik.chat.ui.channel.VisibilitySelector(isPublic, channel = false, onChange = { isPublic = it })
+                }
             }
             OutlinedTextField(
                 value = query,

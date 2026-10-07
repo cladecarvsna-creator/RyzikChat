@@ -116,6 +116,13 @@ class ApiClient(
             avatarFileId?.let { put("avatarFileId", JsonPrimitive(it)) }
         }), User.serializer())
 
+    /** Премиум: эмодзи-статус ("" — убрать) и оформление профиля (null — сбросить). */
+    suspend fun updatePremiumLook(emojiStatus: String, style: ProfileStyle?) =
+        call("PATCH", "/api/me", buildJsonObject {
+            put("emojiStatus", emojiStatus)
+            put("profileStyle", style?.let { AppJson.encodeToJsonElement(ProfileStyle.serializer(), it) } ?: kotlinx.serialization.json.JsonNull)
+        }, User.serializer())
+
     suspend fun searchUsers(q: String) =
         call("GET", "/api/users/search?q=" + java.net.URLEncoder.encode(q, "UTF-8"), null, ListSerializer(User.serializer()))
 
@@ -129,11 +136,24 @@ class ApiClient(
     suspend fun openDirect(userId: String) =
         call("POST", "/api/chats/direct", buildJsonObject { put("userId", userId) }, Chat.serializer())
 
-    suspend fun createGroup(title: String, memberIds: List<String>) =
-        call("POST", "/api/chats/group", JsonObject(mapOf(
-            "title" to JsonPrimitive(title),
-            "memberIds" to kotlinx.serialization.json.JsonArray(memberIds.map { JsonPrimitive(it) }),
-        )), Chat.serializer())
+    suspend fun createGroup(title: String, memberIds: List<String>, isPublic: Boolean = false, description: String = "", avatarFileId: String? = null) =
+        call("POST", "/api/chats/group", JsonObject(buildMap {
+            put("title", JsonPrimitive(title))
+            put("memberIds", kotlinx.serialization.json.JsonArray(memberIds.map { JsonPrimitive(it) }))
+            put("isPublic", JsonPrimitive(isPublic))
+            put("description", JsonPrimitive(description))
+            avatarFileId?.let { put("avatarFileId", JsonPrimitive(it)) }
+        }), Chat.serializer())
+
+    suspend fun setChatAvatar(chatId: String, avatarFileId: String?) =
+        call("PATCH", "/api/chats/$chatId", buildJsonObject { put("avatarFileId", avatarFileId ?: "") }, Chat.serializer())
+
+    suspend fun setChatPublic(chatId: String, isPublic: Boolean) =
+        call("PATCH", "/api/chats/$chatId", buildJsonObject { put("isPublic", isPublic) }, Chat.serializer())
+
+    suspend fun resetInvite(chatId: String) = call("POST", "/api/chats/$chatId/invite/reset", null, Chat.serializer())
+    suspend fun invitePreview(code: String) = call("GET", "/api/invite/${java.net.URLEncoder.encode(code, "UTF-8")}", null, Chat.serializer())
+    suspend fun joinInvite(code: String) = call("POST", "/api/invite/${java.net.URLEncoder.encode(code, "UTF-8")}/join", null, Chat.serializer())
 
     suspend fun updateGroup(chatId: String, title: String? = null, avatarFileId: String? = null) =
         call("PATCH", "/api/chats/$chatId", JsonObject(buildMap {
@@ -148,10 +168,12 @@ class ApiClient(
             archived?.let { put("archived", JsonPrimitive(it)) }
         }), Chat.serializer())
 
-    suspend fun createChannel(title: String, description: String) =
+    suspend fun createChannel(title: String, description: String, isPublic: Boolean = true, avatarFileId: String? = null) =
         call("POST", "/api/chats/channel", buildJsonObject {
             put("title", title)
             put("description", description)
+            put("isPublic", isPublic)
+            avatarFileId?.let { put("avatarFileId", it) }
         }, Chat.serializer())
 
     suspend fun searchChannels(q: String) =

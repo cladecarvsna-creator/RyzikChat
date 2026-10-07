@@ -1,0 +1,193 @@
+package app.ryzik.chat.ui.channel
+
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import app.ryzik.chat.data.userMessage
+import app.ryzik.chat.ui.components.Avatar
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.setValue
+
+/** Аватарка, по нажатию на которую выбирается картинка из галереи. */
+@Composable
+fun AvatarPicker(name: String, url: String?, size: Dp, busy: Boolean = false, enabled: Boolean = true, onPicked: (Uri) -> Unit) {
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) onPicked(uri) }
+    Box(
+        Modifier
+            .size(size)
+            .clip(CircleShape)
+            .clickable(enabled = enabled && !busy) { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+    ) {
+        Avatar(name.ifBlank { "?" }, url, size)
+        if (enabled) Box(
+            Modifier
+                .align(Alignment.BottomEnd)
+                .size(size * 0.32f)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (busy) CircularProgressIndicator(Modifier.size(size * 0.2f), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+            else Icon(Icons.Default.CameraAlt, "Выбрать фото", Modifier.size(size * 0.18f), tint = MaterialTheme.colorScheme.onPrimary)
+        }
+    }
+}
+
+/** Выбор: публичный (ищется, вступить может любой) или частный (только по ссылке-приглашению). */
+@Composable
+fun VisibilitySelector(isPublic: Boolean, channel: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier) {
+    val what = if (channel) "канал" else "группу"
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        VisibilityOption(
+            selected = isPublic,
+            icon = Icons.Default.Public,
+            title = if (channel) "Публичный канал" else "Публичная группа",
+            text = "Любой найдёт $what через поиск и сможет ${if (channel) "подписаться" else "вступить"}.",
+        ) { onChange(true) }
+        VisibilityOption(
+            selected = !isPublic,
+            icon = Icons.Default.Lock,
+            title = if (channel) "Частный канал" else "Частная группа",
+            text = "В поиске не виден. ${if (channel) "Подписаться" else "Вступить"} можно только по вашей ссылке-приглашению.",
+        ) { onChange(false) }
+    }
+}
+
+@Composable
+private fun VisibilityOption(selected: Boolean, icon: ImageVector, title: String, text: String, onClick: () -> Unit) {
+    val border by animateColorAsState(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, label = "b")
+    val bg by animateColorAsState(if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surface, label = "bg")
+    OutlinedCard(
+        onClick = onClick,
+        shape = RoundedCornerShape(18.dp),
+        border = BorderStroke(if (selected) 2.dp else 1.dp, border),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(Modifier.background(bg).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.size(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(2.dp))
+                Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+/** Ссылка-приглашение, которую можно отправить друзьям. */
+fun inviteLink(code: String) = "ryzik://join/$code"
+
+/** Достаёт код приглашения из ссылки ryzik://join/<код> или из самого кода. */
+fun parseInviteCode(text: String): String? {
+    val t = text.trim()
+    if (t.isEmpty()) return null
+    val code = t.substringAfter("join/", t).substringBefore('?').trim('/', ' ')
+    return code.takeIf { it.matches(Regex("[A-Za-z0-9_-]{6,64}")) }
+}
+
+fun membersText(n: Int): String {
+    val mod10 = n % 10
+    val mod100 = n % 100
+    val word = when {
+        mod10 == 1 && mod100 != 11 -> "участник"
+        mod10 in 2..4 && mod100 !in 12..14 -> "участника"
+        else -> "участников"
+    }
+    return "$n $word"
+}
+
+/** Окно приглашения: показывает группу или канал по ссылке и даёт вступить. */
+@Composable
+fun InviteDialog(code: String, onDismiss: () -> Unit, onOpenChat: (String) -> Unit) {
+    val repo = app.ryzik.chat.RyzikApp.instance.repo
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var chat by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<app.ryzik.chat.data.Chat?>(null) }
+    var error by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    var busy by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(code) {
+        runCatching { repo.invitePreview(code) }.onSuccess { chat = it }.onFailure { error = it.userMessage() }
+    }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            val c = chat
+            if (c != null) Avatar(c.title, repo.avatarUrl(c.avatarFileId), 72.dp)
+            else if (error == null) CircularProgressIndicator()
+        },
+        title = { Text(chat?.title ?: if (error != null) "Приглашение" else "Загрузка…") },
+        text = {
+            val c = chat
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                if (c != null) {
+                    Text(
+                        (if (c.type == "channel") app.ryzik.chat.ui.chats.subscribersText(c.memberCount) else membersText(c.memberCount)) +
+                            if (c.isPublic) "" else " · частн${if (c.type == "channel") "ый канал" else "ая группа"}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (c.description.isNotBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(c.description, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    }
+                }
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = {
+            val c = chat
+            if (c != null) androidx.compose.material3.Button(enabled = !busy, onClick = {
+                if (c.myRole != null) onOpenChat(c.id) else {
+                    busy = true
+                    scope.launch {
+                        runCatching { repo.joinInvite(code) }
+                            .onSuccess { onOpenChat(it.id) }
+                            .onFailure { error = it.userMessage() }
+                        busy = false
+                    }
+                }
+            }) {
+                Text(
+                    when {
+                        c.myRole != null -> "Открыть"
+                        c.type == "channel" -> "Подписаться"
+                        else -> "Вступить"
+                    }
+                )
+            }
+        },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Закрыть") } },
+    )
+}

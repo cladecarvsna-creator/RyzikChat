@@ -125,11 +125,14 @@ fun parseColor(hex: String): Color = runCatching { Color(android.graphics.Color.
 
 /** Маленькие значки рядом с именем. Выдаёт их только администратор. */
 @Composable
-fun BadgeIcons(badges: List<Badge>, isAdmin: Boolean = false, size: Dp = 18.dp, isPremium: Boolean = false) {
+fun BadgeIcons(badges: List<Badge>, isAdmin: Boolean = false, size: Dp = 18.dp, isPremium: Boolean = false, emojiStatus: String? = null) {
     if (badges.isEmpty() && !isAdmin && !isPremium) return
     Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
         Spacer(Modifier.width(4.dp))
-        if (isPremium) PremiumStar(size)
+        if (isPremium) {
+            // С Премиумом вместо звезды можно поставить свой эмодзи-статус.
+            if (!emojiStatus.isNullOrBlank()) Text(emojiStatus, fontSize = (size.value * 0.9f).sp) else PremiumStar(size)
+        }
         if (isAdmin) Icon(Icons.Default.Verified, "Администратор", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(size))
         badges.take(3).forEach { b ->
             Box(
@@ -165,10 +168,10 @@ fun BadgeChip(badge: Badge, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun NameWithBadges(name: String, badges: List<Badge>, isAdmin: Boolean, style: TextStyle, modifier: Modifier = Modifier, color: Color = Color.Unspecified, isPremium: Boolean = false) {
+fun NameWithBadges(name: String, badges: List<Badge>, isAdmin: Boolean, style: TextStyle, modifier: Modifier = Modifier, color: Color = Color.Unspecified, isPremium: Boolean = false, emojiStatus: String? = null) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         Text(name, style = style, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-        BadgeIcons(badges, isAdmin, size = (style.fontSize.value + 2).dp, isPremium = isPremium)
+        BadgeIcons(badges, isAdmin, size = (style.fontSize.value + 2).dp, isPremium = isPremium, emojiStatus = emojiStatus)
     }
 }
 

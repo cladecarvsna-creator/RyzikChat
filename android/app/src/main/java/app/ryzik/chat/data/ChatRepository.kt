@@ -359,7 +359,7 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
             rememberUsers(list.flatMap { c -> c.members.map { it.user } })
             chatsMutex.withLock {
                 // Каналы, которые человек просто смотрит (не подписан), сервер в списке не отдаёт — сохраняем их.
-                val previews = _chats.value.filter { it.type == "channel" && it.myRole == null && list.none { n -> n.id == it.id } }
+                val previews = _chats.value.filter { (it.type == "channel" || it.type == "group") && it.myRole == null && list.none { n -> n.id == it.id } }
                 _chats.value = sortChats(list + previews)
             }
         } catch (_: Exception) {
@@ -397,7 +397,23 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
 
     suspend fun openDirect(userId: String): Chat = api.openDirect(userId).also { upsertChat(it) }
 
-    suspend fun createGroup(title: String, memberIds: List<String>): Chat = api.createGroup(title, memberIds).also { upsertChat(it) }
+    suspend fun createGroup(title: String, memberIds: List<String>, isPublic: Boolean = false, description: String = "", avatarFileId: String? = null): Chat =
+        api.createGroup(title, memberIds, isPublic, description, avatarFileId).also { upsertChat(it) }
+
+    suspend fun setChatAvatar(chatId: String, avatarFileId: String?) = upsertChat(api.setChatAvatar(chatId, avatarFileId))
+
+    suspend fun setChatPublic(chatId: String, isPublic: Boolean) = upsertChat(api.setChatPublic(chatId, isPublic))
+
+    suspend fun resetInvite(chatId: String) = upsertChat(api.resetInvite(chatId))
+
+    suspend fun invitePreview(code: String): Chat = api.invitePreview(code)
+
+    suspend fun joinInvite(code: String): Chat = api.joinInvite(code).also { upsertChat(it) }
+
+    /** Премиум: эмодзи-статус и оформление профиля. */
+    suspend fun updatePremiumLook(emojiStatus: String, style: ProfileStyle?) {
+        rememberUsers(listOf(api.updatePremiumLook(emojiStatus, style)))
+    }
 
     suspend fun renameGroup(chatId: String, title: String) = upsertChat(api.updateGroup(chatId, title = title))
 
@@ -412,7 +428,8 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
     suspend fun setMuted(chatId: String, muted: Boolean) = upsertChat(api.chatSettings(chatId, muted = muted))
     suspend fun setArchived(chatId: String, archived: Boolean) = upsertChat(api.chatSettings(chatId, archived = archived))
 
-    suspend fun createChannel(title: String, description: String): Chat = api.createChannel(title, description).also { upsertChat(it) }
+    suspend fun createChannel(title: String, description: String, isPublic: Boolean = true, avatarFileId: String? = null): Chat =
+        api.createChannel(title, description, isPublic, avatarFileId).also { upsertChat(it) }
 
     suspend fun searchChannels(q: String): List<Chat> = api.searchChannels(q)
 

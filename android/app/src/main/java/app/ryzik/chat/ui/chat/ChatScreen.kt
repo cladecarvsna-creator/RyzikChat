@@ -259,8 +259,9 @@ fun ChatScreen(
         onDispose { if (repo.openChatId == chatId) repo.openChatId = null }
     }
     LaunchedEffect(chatId) {
-        if (repo.chat(chatId) == null) runCatching { repo.loadChat(chatId) }
-        runCatching { repo.loadLatest(chatId) }.onFailure { error = it.userMessage() }
+        val c = repo.chat(chatId) ?: runCatching { repo.loadChat(chatId) }.getOrNull()
+        // Сообщения группы зашифрованы для участников: до вступления их не показать.
+        if (!(c?.type == "group" && c.myRole == null)) runCatching { repo.loadLatest(chatId) }.onFailure { error = it.userMessage() }
     }
     LaunchedEffect(messages.lastOrNull()?.id) { repo.markRead(chatId) }
 
@@ -326,7 +327,7 @@ fun ChatScreen(
                         Column {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                                if (peer != null) BadgeIcons(peer.badges, peer.isAdmin, 16.dp, peer.isPremium)
+                                if (peer != null) BadgeIcons(peer.badges, peer.isAdmin, 16.dp, peer.isPremium, peer.emojiStatus)
                             }
                             AnimatedContent(
                                 targetState = when {
@@ -474,12 +475,14 @@ fun ChatScreen(
                 }
             }
 
-            val canPost = chat == null || chat.type != "channel" || chat.myRole == "owner" || chat.myRole == "admin"
+            val canPost = chat == null || (chat.type != "channel" && (chat.myRole != null || chat.type == "direct" || chat.type == "saved")) ||
+                chat.myRole == "owner" || chat.myRole == "admin"
             if (!canPost && chat != null) {
                 ChannelBar(
                     subscribed = chat.myRole != null,
+                    joinText = if (chat.type == "group") "Вступить в группу" else "Подписаться",
                     muted = chat.muted,
-                    onSubscribe = { scope.launch { runCatching { repo.subscribe(chatId) }.onFailure { error = it.userMessage() } } },
+                    onSubscribe = { scope.launch { runCatching { repo.subscribe(chatId); repo.loadLatest(chatId) }.onFailure { error = it.userMessage() } } },
                     onToggleMute = { scope.launch { runCatching { repo.setMuted(chatId, !chat.muted) } } },
                 )
             } else
@@ -740,7 +743,7 @@ private fun copy(context: Context, text: String) {
 }
 
 @Composable
-private fun ChannelBar(subscribed: Boolean, muted: Boolean, onSubscribe: () -> Unit, onToggleMute: () -> Unit) {
+private fun ChannelBar(subscribed: Boolean, joinText: String, muted: Boolean, onSubscribe: () -> Unit, onToggleMute: () -> Unit) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
         Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
             AnimatedContent(subscribed, label = "sub", transitionSpec = { (scaleIn(spring(Spring.DampingRatioMediumBouncy)) + fadeIn()) togetherWith fadeOut() }) { sub ->
@@ -748,7 +751,7 @@ private fun ChannelBar(subscribed: Boolean, muted: Boolean, onSubscribe: () -> U
                     Button(onClick = onSubscribe, modifier = Modifier.fillMaxWidth().height(48.dp)) {
                         Icon(Icons.Default.Add, null)
                         Spacer(Modifier.width(8.dp))
-                        Text("Подписаться")
+                        Text(joinText)
                     }
                 } else {
                     TextButton(onClick = onToggleMute, modifier = Modifier.fillMaxWidth().height(48.dp)) {

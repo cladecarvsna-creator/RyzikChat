@@ -171,3 +171,52 @@ test('каналы, премиум, сигналы звонков, докуме�
   assert.equal(spec.status, 200);
   assert.ok((await spec.json()).paths['/api/chats/channel']);
 });
+
+test('открытые и частные группы, приглашения, премиум-оформление', async () => {
+  const o = (await reg('owner3')).body;
+  const g = (await reg('guest3')).body;
+
+  // Частная группа: не ищется и не открывается без ссылки.
+  const priv = await api('POST', '/api/chats/group', { title: 'Тайная группа', memberIds: [], isPublic: false }, o.token);
+  assert.equal(priv.status, 201);
+  assert.equal(priv.body.isPublic, false);
+  assert.ok(priv.body.inviteCode);
+  assert.equal((await api('GET', '/api/chats/search?q=Тайная', null, g.token)).body.length, 0);
+  assert.equal((await api('POST', `/api/chats/${priv.body.id}/subscribe`, null, g.token)).status, 404);
+  const preview = await api('GET', `/api/invite/${priv.body.inviteCode}`, null, g.token);
+  assert.equal(preview.body.title, 'Тайная группа');
+  assert.equal(preview.body.myRole, null);
+  const joined = await api('POST', `/api/invite/${priv.body.inviteCode}/join`, null, g.token);
+  assert.equal(joined.body.myRole, 'member');
+  assert.equal(joined.body.inviteCode, null, 'обычный участник частной группы не видит ссылку');
+
+  // Сброс ссылки делает старую недействительной.
+  const reset = await api('POST', `/api/chats/${priv.body.id}/invite/reset`, null, o.token);
+  assert.notEqual(reset.body.inviteCode, priv.body.inviteCode);
+  assert.equal((await api('GET', `/api/invite/${priv.body.inviteCode}`, null, g.token)).status, 404);
+
+  // Открытая группа ищется и в неё можно вступить; аватарку можно поставить.
+  const pub = await api('POST', '/api/chats/group', { title: 'Открытая группа', memberIds: [], isPublic: true }, o.token);
+  const found = await api('GET', '/api/chats/search?q=Открытая', null, g.token);
+  assert.equal(found.body[0].id, pub.body.id);
+  assert.equal((await api('POST', `/api/chats/${pub.body.id}/subscribe`, null, g.token)).body.myRole, 'member');
+  const av = await api('PATCH', `/api/chats/${pub.body.id}`, { avatarFileId: 'file-1', isPublic: false }, o.token);
+  assert.equal(av.body.avatarFileId, 'file-1');
+  assert.equal(av.body.isPublic, false);
+  assert.equal((await api('PATCH', `/api/chats/${pub.body.id}`, { isPublic: true }, g.token)).status, 403);
+
+  // Частный канал не читается посторонними.
+  const ch = await api('POST', '/api/chats/channel', { title: 'Закрытый канал', isPublic: false }, o.token);
+  assert.equal(ch.body.isPublic, false);
+  assert.equal((await api('GET', `/api/chats/${ch.body.id}/messages`, null, g.token)).status, 404);
+
+  // Эмодзи-статус и оформление профиля — только с Премиумом.
+  const style = { color1: '#FF5CA8', color2: '#8E5CFF', pattern: '⭐', ring: 'gradient', junk: 'x', nameColor: 'red' };
+  assert.equal((await api('PATCH', '/api/me', { emojiStatus: '🔥' }, g.token)).status, 403);
+  const admin = (await api('POST', '/api/auth/login', { username: 'alice', password: 'x'.repeat(64) })).body;
+  await api('PUT', `/api/admin/users/${g.user.id}/premium`, { isPremium: true }, admin.token);
+  const me = await api('PATCH', '/api/me', { emojiStatus: '🔥', profileStyle: style }, g.token);
+  assert.equal(me.status, 200);
+  assert.equal(me.body.emojiStatus, '🔥');
+  assert.deepEqual(me.body.profileStyle, { color1: '#FF5CA8', color2: '#8E5CFF', pattern: '⭐', ring: 'gradient' });
+});

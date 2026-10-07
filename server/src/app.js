@@ -64,6 +64,9 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
       avatarFileId: row.avatar_file_id ?? null,
       isAdmin: !!row.is_admin,
       isPremium: !!row.is_premium,
+      // Оформление профиля и эмодзи-статус — возможности Премиума.
+      emojiStatus: row.is_premium ? row.emoji_status ?? null : null,
+      profileStyle: row.is_premium && row.profile_style ? JSON.parse(row.profile_style) : null,
       publicKey: row.public_key,
       online: hub.isOnline(row.id),
       lastSeen: row.last_seen,
@@ -117,7 +120,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
   function chatView(chatId, userId, { preview = false } = {}) {
     const chat = getChatRow.get(chatId);
     const me = membershipStmt.get(chatId, userId);
-    if (!chat || (!me && !(preview && chat.type === 'channel'))) return null;
+    if (!chat || (!me && !(preview && (chat.is_public || preview === 'invite') && ['group', 'channel'].includes(chat.type)))) return null;
     // У канала могут быть тысячи подписчиков — отдаём только владельца и админов.
     const members = chat.type === 'channel'
       ? db.prepare("SELECT user_id, role FROM chat_members WHERE chat_id = ? AND role IN ('owner', 'admin')").all(chatId)
@@ -129,6 +132,9 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
       title: chat.title,
       description: chat.description ?? '',
       avatarFileId: chat.avatar_file_id ?? null,
+      isPublic: !!chat.is_public,
+      // Ссылку-приглашение видят владелец и админы, а в открытых — все участники.
+      inviteCode: me && (chat.is_public || ['owner', 'admin'].includes(me.role)) ? chat.invite_code ?? null : null,
       createdBy: chat.created_by,
       createdAt: chat.created_at,
       members: members.map((m) => ({ user: getUser(m.user_id), role: m.role })),
@@ -143,11 +149,15 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
     };
   }
 
-  function createChat({ type, title = '', description = '', createdBy, members, directKey = null }) {
+  const newInviteCode = () => crypto.randomBytes(9).toString('base64url');
+
+  function createChat({ type, title = '', description = '', createdBy, members, directKey = null, isPublic = false, avatarFileId = null }) {
     const id = newId();
     const t = now();
-    db.prepare('INSERT INTO chats (id, type, title, description, created_by, created_at, direct_key) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(id, type, title, description, createdBy, t, directKey);
+    const code = ['group', 'channel'].includes(type) ? newInviteCode() : null;
+    db.prepare(`INSERT INTO chats (id, type, title, description, created_by, created_at, direct_key, is_public, invite_code, avatar_file_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, type, title, description, createdBy, t, directKey, isPublic ? 1 : 0, code, avatarFileId || null);
     const add = db.prepare('INSERT INTO chat_members (chat_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)');
     for (const m of members) add.run(id, m, m === createdBy ? 'owner' : type === 'channel' ? 'subscriber' : 'member', t);
     return id;
@@ -155,6 +165,25 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
 
   function broadcastChat(chatId, event) {
     hub.sendToUsers(memberIds(chatId), event);
+  }
+
+  const STYLE_KEYS = {
+    color1: 'color', color2: 'color', nameColor: 'color',
+    pattern: 'text', bannerFileId: 'text', ring: 'text', effect: 'text', font: 'text',
+  };
+
+  /** Оставляет в оформлении профиля только известные поля с разумными значениями. */
+  function cleanProfileStyle(style) {
+    if (!style || typeof style !== 'object') return null;
+    const out = {};
+    for (const [k, kind] of Object.entries(STYLE_KEYS)) {
+      const v = style[k];
+      if (v === undefined || v === null || v === '') continue;
+      if (kind === 'color') {
+        if (/^#[0-9a-fA-F]{6}$/.test(String(v))) out[k] = String(v);
+      } else out[k] = String(v).slice(0, 64);
+    }
+    return Object.keys(out).length ? JSON.stringify(out) : null;
   }
 
   // ---------- auth ----------
@@ -184,7 +213,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
     return token;
   }
 
-  app.get('/api/health', (_req, res) => res.json({ ok: true, name: 'RyzikChat', version: '0.2.0', apiVersion: 1 }));
+  app.get('/api/health', (_req, res) => res.json({ ok: true, name: 'RyzikChat', version: '0.4.0', apiVersion: 1 }));
 
   // Открытое описание API — чтобы можно было написать клиент под любое устройство.
   app.get('/api/openapi.json', (_req, res) => res.sendFile(path.join(import.meta.dirname, '..', 'openapi.json')));
@@ -254,7 +283,18 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
   app.get('/api/me', (req, res) => res.json(getUser(req.userId)));
 
   app.patch('/api/me', (req, res) => {
-    const { displayName, bio, avatarFileId } = req.body ?? {};
+    const { displayName, bio, avatarFileId, emojiStatus, profileStyle } = req.body ?? {};
+    const premium = !!getUserRow.get(req.userId).is_premium;
+    if ((emojiStatus || profileStyle) && !premium) {
+      throw new HttpError(403, 'premium_required', 'Это доступно с Премиумом');
+    }
+    if (emojiStatus !== undefined) {
+      const e = emojiStatus ? String(emojiStatus).trim().slice(0, 16) : null;
+      db.prepare('UPDATE users SET emoji_status = ? WHERE id = ?').run(e || null, req.userId);
+    }
+    if (profileStyle !== undefined) {
+      db.prepare('UPDATE users SET profile_style = ? WHERE id = ?').run(cleanProfileStyle(profileStyle), req.userId);
+    }
     if (displayName !== undefined) {
       const n = String(displayName).trim().slice(0, 64);
       if (!n) throw new HttpError(400, 'bad_name', 'Имя не может быть пустым');
@@ -308,6 +348,8 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
     res.json(chats);
   });
 
+  app.get('/api/chats/search', (req, res) => searchPublic(req, res));
+
   app.get('/api/chats/:id', (req, res) => {
     const view = chatView(req.params.id, req.userId, { preview: true });
     if (!view) throw new HttpError(404, 'chat_not_found', 'Чат не найден');
@@ -339,7 +381,11 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
     if (!title) throw new HttpError(400, 'bad_title', 'Укажите название группы');
     const ids = [...new Set([req.userId, ...(req.body?.memberIds ?? []).map(String)])]
       .filter((id) => getUserRow.get(id));
-    const chatId = tx(db, () => createChat({ type: 'group', title, createdBy: req.userId, members: ids }));
+    const description = String(req.body?.description ?? '').trim().slice(0, 500);
+    const chatId = tx(db, () => createChat({
+      type: 'group', title, description, createdBy: req.userId, members: ids,
+      isPublic: !!req.body?.isPublic, avatarFileId: req.body?.avatarFileId,
+    }));
     for (const id of ids) if (id !== req.userId) hub.sendToUsers([id], { type: 'chat.new', chat: chatView(chatId, id), by: req.userId });
     res.status(201).json(chatView(chatId, req.userId));
   });
@@ -350,24 +396,64 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
     const title = String(req.body?.title ?? '').trim().slice(0, 128);
     if (!title) throw new HttpError(400, 'bad_title', 'Укажите название канала');
     const description = String(req.body?.description ?? '').trim().slice(0, 500);
-    const chatId = tx(db, () => createChat({ type: 'channel', title, description, createdBy: req.userId, members: [req.userId] }));
+    const chatId = tx(db, () => createChat({
+      type: 'channel', title, description, createdBy: req.userId, members: [req.userId],
+      isPublic: req.body?.isPublic !== false, avatarFileId: req.body?.avatarFileId,
+    }));
     res.status(201).json(chatView(chatId, req.userId));
   });
 
-  app.get('/api/channels/search', (req, res) => {
+  /** Поиск открытых каналов и групп. */
+  function searchPublic(req, res) {
     const q = String(req.query.q ?? '').trim();
     const like = `%${q.replace(/[%_\\]/g, (c) => '\\' + c)}%`;
     const rows = db.prepare(`SELECT c.id, (SELECT COUNT(*) FROM chat_members m WHERE m.chat_id = c.id) AS n FROM chats c
-      WHERE c.type = 'channel' AND (c.title LIKE ? ESCAPE '\\' OR c.description LIKE ? ESCAPE '\\')
+      WHERE c.type IN ('channel', 'group') AND c.is_public = 1 AND (c.title LIKE ? ESCAPE '\\' OR c.description LIKE ? ESCAPE '\\')
       ORDER BY n DESC LIMIT 30`).all(like, like);
-    res.json(rows.map((r) => chatView(r.id, req.userId, { preview: true })));
-  });
+    res.json(rows.map((r) => chatView(r.id, req.userId, { preview: true })).filter(Boolean));
+  }
+  app.get('/api/channels/search', searchPublic);
+
+  function join(chat, userId) {
+    const role = chat.type === 'channel' ? 'subscriber' : 'member';
+    const added = db.prepare('INSERT OR IGNORE INTO chat_members (chat_id, user_id, role, last_read_seq, joined_at) VALUES (?, ?, ?, ?, ?)')
+      .run(chat.id, userId, role, chat.last_seq, now()).changes;
+    // В группе остальные должны узнать о новом участнике, чтобы шифровать сообщения и для него.
+    if (added && chat.type === 'group') broadcastChat(chat.id, { type: 'chat.updated', chatId: chat.id });
+  }
 
   app.post('/api/chats/:id/subscribe', (req, res) => {
     const chat = getChatRow.get(req.params.id);
-    if (!chat || chat.type !== 'channel') throw new HttpError(404, 'chat_not_found', 'Канал не найден');
-    db.prepare("INSERT OR IGNORE INTO chat_members (chat_id, user_id, role, last_read_seq, joined_at) VALUES (?, ?, 'subscriber', ?, ?)")
-      .run(chat.id, req.userId, chat.last_seq, now());
+    if (!chat || !['channel', 'group'].includes(chat.type) || !chat.is_public) {
+      throw new HttpError(404, 'chat_not_found', 'Канал или группа не найдены');
+    }
+    join(chat, req.userId);
+    res.json(chatView(chat.id, req.userId));
+  });
+
+  const chatByInvite = (code) => {
+    const chat = db.prepare('SELECT * FROM chats WHERE invite_code = ?').get(String(code));
+    if (!chat) throw new HttpError(404, 'invite_not_found', 'Ссылка-приглашение недействительна');
+    return chat;
+  };
+
+  app.get('/api/invite/:code', (req, res) => {
+    res.json(chatView(chatByInvite(req.params.code).id, req.userId, { preview: 'invite' }));
+  });
+
+  app.post('/api/invite/:code/join', (req, res) => {
+    const chat = chatByInvite(req.params.code);
+    join(chat, req.userId);
+    res.json(chatView(chat.id, req.userId));
+  });
+
+  app.post('/api/chats/:id/invite/reset', (req, res) => {
+    const m = requireMember(req.params.id, req.userId);
+    const chat = getChatRow.get(req.params.id);
+    if (!['group', 'channel'].includes(chat.type) || !['owner', 'admin'].includes(m.role)) {
+      throw new HttpError(403, 'forbidden', 'Только владелец или админ');
+    }
+    db.prepare('UPDATE chats SET invite_code = ? WHERE id = ?').run(newInviteCode(), chat.id);
     res.json(chatView(chat.id, req.userId));
   });
 
@@ -383,9 +469,13 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
   app.patch('/api/chats/:id', (req, res) => {
     const m = requireMember(req.params.id, req.userId);
     const chat = getChatRow.get(req.params.id);
-    const { title, avatarFileId, description } = req.body ?? {};
+    const { title, avatarFileId, description, isPublic } = req.body ?? {};
     if (!['group', 'channel'].includes(chat.type) || !['owner', 'admin'].includes(m.role)) {
       throw new HttpError(403, 'forbidden', 'Только владелец или админ');
+    }
+    if (isPublic !== undefined) {
+      if (m.role !== 'owner') throw new HttpError(403, 'forbidden', 'Сделать открытым или частным может только владелец');
+      db.prepare('UPDATE chats SET is_public = ? WHERE id = ?').run(isPublic ? 1 : 0, chat.id);
     }
     if (description !== undefined) db.prepare('UPDATE chats SET description = ? WHERE id = ?').run(String(description).slice(0, 500), chat.id);
     if (title !== undefined) db.prepare('UPDATE chats SET title = ? WHERE id = ?').run(String(title).slice(0, 128), chat.id);
@@ -453,7 +543,8 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
   // ---------- messages ----------
 
   app.get('/api/chats/:id/messages', (req, res) => {
-    if (getChatRow.get(req.params.id)?.type !== 'channel') requireMember(req.params.id, req.userId);
+    const c = getChatRow.get(req.params.id);
+    if (!(c?.type === 'channel' && c.is_public)) requireMember(req.params.id, req.userId);
     const limit = Math.min(Number(req.query.limit ?? 50) || 50, 200);
     const before = req.query.before ? Number(req.query.before) : Number.MAX_SAFE_INTEGER;
     const after = req.query.after ? Number(req.query.after) : 0;

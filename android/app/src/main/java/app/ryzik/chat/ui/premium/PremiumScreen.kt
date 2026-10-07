@@ -129,7 +129,8 @@ fun PremiumScreen(onBack: () -> Unit) {
             Spacer(Modifier.height(24.dp))
 
             val perks = listOf(
-                Perk(Icons.Default.Star, "Звезда у имени", "Переливающийся значок Премиума виден всем"),
+                Perk(Icons.Default.Star, "Звезда или эмодзи-статус", "Переливающаяся звезда у имени или любой эмодзи на ваш выбор"),
+                Perk(Icons.Default.Palette, "Оформление профиля", "Цвет и обложка шапки, узор из эмодзи с эффектами, рамка аватарки, цвет и шрифт имени"),
                 Perk(Icons.Default.CloudUpload, "Файлы до 2 ГБ", "Вместо 200 МБ без Премиума"),
                 Perk(Icons.Default.CropSquare, "Длинные квадратики", "Видеосообщения до 2 минут вместо 1"),
                 Perk(Icons.Default.Mic, "Длинные голосовые", "До 30 минут вместо 10"),

@@ -27,6 +27,28 @@ data class User(
     val online: Boolean = false,
     val lastSeen: Long = 0,
     val badges: List<Badge> = emptyList(),
+    /** Премиум: эмодзи рядом с именем. */
+    val emojiStatus: String? = null,
+    /** Премиум: оформление профиля. */
+    val profileStyle: ProfileStyle? = null,
+)
+
+/** Оформление профиля с Премиумом. Цвета в виде #RRGGBB. */
+@Serializable
+data class ProfileStyle(
+    val color1: String? = null,
+    val color2: String? = null,
+    val nameColor: String? = null,
+    /** Эмодзи, которым усыпана шапка профиля. */
+    val pattern: String? = null,
+    /** Картинка-обложка шапки. */
+    val bannerFileId: String? = null,
+    /** Рамка аватарки: none | gradient | glow | pulse. */
+    val ring: String? = null,
+    /** Эффект шапки: none | shimmer | float | sparkle. */
+    val effect: String? = null,
+    /** Шрифт имени: default | serif | mono | rounded. */
+    val font: String? = null,
 )
 
 @Serializable
@@ -61,6 +83,9 @@ data class Chat(
     val memberCount: Int = 0,
     val myRole: String? = null,
     val avatarFileId: String? = null,
+    /** Открытый: ищется и вступить может любой. Частный: только по ссылке. */
+    val isPublic: Boolean = false,
+    val inviteCode: String? = null,
     val createdBy: String = "",
     val createdAt: Long = 0,
     val members: List<ChatMember> = emptyList(),

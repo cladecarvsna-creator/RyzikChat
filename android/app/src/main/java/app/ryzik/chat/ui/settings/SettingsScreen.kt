@@ -127,6 +127,7 @@ fun SettingsScreen(
     onOpenAdmin: () -> Unit,
     onOpenSaved: () -> Unit,
     onOpenPremium: () -> Unit,
+    onOpenProfileLook: () -> Unit = {},
 ) {
     val repo = RyzikApp.instance.repo
     val auth by repo.auth.collectAsState()
@@ -186,7 +187,10 @@ fun SettingsScreen(
                         Spacer(Modifier.height(12.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(me.displayName, style = MaterialTheme.typography.headlineSmall)
-                            if (me.isPremium) app.ryzik.chat.ui.components.PremiumStar(22.dp)
+                            if (me.isPremium) {
+                                if (!me.emojiStatus.isNullOrBlank()) app.ryzik.chat.ui.premium.EmojiStatus(me.emojiStatus!!, 22.sp)
+                                else app.ryzik.chat.ui.components.PremiumStar(22.dp)
+                            }
                             IconButton(onClick = { name = me.displayName; bio = me.bio; editing = true }) {
                                 Icon(Icons.Default.Edit, "Изменить", Modifier.size(20.dp))
                             }
@@ -246,6 +250,20 @@ fun SettingsScreen(
                         ) { Icon(Icons.Default.Star, null, tint = Color.White) }
                     },
                     modifier = Modifier.clickable(onClick = onOpenPremium),
+                )
+            }
+            item {
+                ListItem(
+                    headlineContent = { Text("Оформление профиля") },
+                    supportingContent = { Text("Эмодзи-статус, цвет и узор шапки, рамка аватарки, шрифт имени") },
+                    leadingContent = {
+                        Box(
+                            Modifier.size(40.dp).clip(CircleShape).background(Brush.linearGradient(app.ryzik.chat.ui.components.PremiumGradient)),
+                            contentAlignment = Alignment.Center,
+                        ) { Text(me.emojiStatus?.takeIf { me.isPremium && it.isNotBlank() } ?: "🎨", fontSize = 20.sp) }
+                    },
+                    trailingContent = { if (!me.isPremium) app.ryzik.chat.ui.components.PremiumStar(18.dp) },
+                    modifier = Modifier.clickable(onClick = onOpenProfileLook),
                 )
             }
             if (me.isAdmin) item {

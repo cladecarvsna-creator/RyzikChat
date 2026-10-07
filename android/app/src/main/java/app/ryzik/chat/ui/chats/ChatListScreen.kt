@@ -1,6 +1,7 @@
 package app.ryzik.chat.ui.chats
 
 import androidx.compose.material3.Surface
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Campaign
@@ -14,6 +15,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -84,6 +86,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.ryzik.chat.RyzikApp
+import app.ryzik.chat.ui.channel.InviteDialog
+import app.ryzik.chat.ui.channel.membersText
+import app.ryzik.chat.ui.channel.parseInviteCode
 import app.ryzik.chat.data.AuthState
 import app.ryzik.chat.data.Chat
 import app.ryzik.chat.data.User
@@ -126,6 +131,10 @@ fun ChatListScreen(
     var filter by remember { mutableStateOf(Filter.All) }
     var showArchive by remember { mutableStateOf(false) }
     var menuChat by remember { mutableStateOf<Chat?>(null) }
+    var openInvite by remember { mutableStateOf<String?>(null) }
+    openInvite?.let { code ->
+        InviteDialog(code, onDismiss = { openInvite = null }, onOpenChat = { id -> openInvite = null; onOpenChat(id) })
+    }
 
     LaunchedEffect(query) {
         if (query.length < 2) { foundUsers = emptyList(); return@LaunchedEffect }
@@ -141,7 +150,7 @@ fun ChatListScreen(
     val archivedCount = chats.count { it.archived }
     val visible = chats.filter { c ->
         val title = repo.chatTitle(c)
-        !(c.type == "channel" && c.myRole == null) &&
+        !((c.type == "channel" || c.type == "group") && c.myRole == null) &&
         (if (showArchive) c.archived else !c.archived) &&
             (query.isBlank() || title.contains(query, ignoreCase = true)) &&
             when (filter) {
@@ -279,7 +288,7 @@ fun ChatListScreen(
                             headlineContent = {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(u.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    BadgeIcons(u.badges, u.isAdmin, isPremium = u.isPremium)
+                                    BadgeIcons(u.badges, u.isAdmin, isPremium = u.isPremium, emojiStatus = u.emojiStatus)
                                 }
                             },
                             supportingContent = { Text("@${u.username}") },
@@ -295,10 +304,21 @@ fun ChatListScreen(
                         )
                     }
                 }
+                val inviteCode = if (query.contains("join/")) parseInviteCode(query) else null
+                if (inviteCode != null) {
+                    item(key = "invite") {
+                        ListItem(
+                            headlineContent = { Text("Открыть приглашение") },
+                            supportingContent = { Text("Вступить в группу или канал по ссылке") },
+                            leadingContent = { Icon(Icons.Default.Link, null, tint = MaterialTheme.colorScheme.primary) },
+                            modifier = Modifier.clickable { openInvite = inviteCode },
+                        )
+                    }
+                }
                 if (searching && foundChannels.isNotEmpty()) {
                     item(key = "channels") {
                         Text(
-                            "Каналы",
+                            "Каналы и группы",
                             style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
@@ -307,7 +327,7 @@ fun ChatListScreen(
                     items(foundChannels, key = { "c_" + it.id }) { c ->
                         ListItem(
                             headlineContent = { Text(c.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                            supportingContent = { Text("${subscribersText(c.memberCount)}" + c.description.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            supportingContent = { Text((if (c.type == "group") membersText(c.memberCount) else subscribersText(c.memberCount)) + c.description.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             leadingContent = { Avatar(c.title, repo.avatarUrl(c.avatarFileId), 48.dp) },
                             modifier = Modifier.animateItem().combinedClickable(onClick = { onOpenChat(c.id) }),
                         )
@@ -394,7 +414,7 @@ private fun ChatRow(
                 Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                     Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                     if (chat.type == "channel") Icon(Icons.Default.Campaign, null, Modifier.padding(start = 4.dp).size(16.dp), tint = scheme.primary)
-                    if (peer != null) BadgeIcons(peer.badges, peer.isAdmin, 16.dp, peer.isPremium)
+                    if (peer != null) BadgeIcons(peer.badges, peer.isAdmin, 16.dp, peer.isPremium, peer.emojiStatus)
                     if (chat.muted) Icon(Icons.Default.NotificationsOff, null, Modifier.padding(start = 4.dp).size(14.dp), tint = scheme.outline)
                 }
                 val last = chat.lastMessage

@@ -603,7 +603,7 @@
   },
   "/api/chats/{id}/subscribe": {
    "post": {
-    "summary": "Подписаться на канал",
+    "summary": "Вступить в открытую группу или подписаться на открытый канал",
     "tags": [
      "Каналы"
     ],
@@ -1463,6 +1463,128 @@
      }
     }
    }
+  },
+  "/api/chats/search": {
+   "get": {
+    "summary": "Поиск открытых групп и каналов",
+    "tags": [
+     "Каналы"
+    ],
+    "parameters": [
+     {
+      "name": "q",
+      "in": "query",
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Список чатов",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Chat"
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/invite/{code}": {
+   "get": {
+    "summary": "Посмотреть группу или канал по ссылке-приглашению",
+    "tags": [
+     "Каналы"
+    ],
+    "parameters": [
+     {
+      "name": "code",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Chat"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/invite/{code}/join": {
+   "post": {
+    "summary": "Вступить по ссылке-приглашению (в том числе в частные)",
+    "tags": [
+     "Каналы"
+    ],
+    "parameters": [
+     {
+      "name": "code",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Chat"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/chats/{id}/invite/reset": {
+   "post": {
+    "summary": "Новая ссылка-приглашение (старая перестаёт работать)",
+    "tags": [
+     "Каналы"
+    ],
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Chat"
+        }
+       }
+      }
+     }
+    }
+   }
   }
  },
  "components": {
@@ -1531,6 +1653,16 @@
       "items": {
        "$ref": "#/components/schemas/Badge"
       }
+     },
+     "emojiStatus": {
+      "type": "string",
+      "nullable": true,
+      "description": "Эмодзи-статус (Премиум)"
+     },
+     "profileStyle": {
+      "type": "object",
+      "nullable": true,
+      "description": "Оформление профиля (Премиум): color1, color2, nameColor (#RRGGBB), pattern, bannerFileId, ring, effect, font"
      }
     }
    },
@@ -1650,6 +1782,15 @@
      },
      "archived": {
       "type": "boolean"
+     },
+     "isPublic": {
+      "type": "boolean",
+      "description": "Открытый (ищется, вступить может любой) или частный (только по ссылке)"
+     },
+     "inviteCode": {
+      "type": "string",
+      "nullable": true,
+      "description": "Код ссылки ryzik://join/<code>"
      }
     }
    },

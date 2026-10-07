@@ -39,8 +39,11 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import app.ryzik.chat.call.CallPhase
 import app.ryzik.chat.data.AppSettings
 import app.ryzik.chat.ui.call.CallScreen
+import app.ryzik.chat.ui.channel.InviteDialog
 import app.ryzik.chat.ui.channel.NewChannelScreen
+import app.ryzik.chat.ui.channel.parseInviteCode
 import app.ryzik.chat.ui.premium.PremiumScreen
+import app.ryzik.chat.ui.premium.ProfileLookScreen
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -63,11 +66,20 @@ import app.ryzik.chat.ui.welcome.WelcomeScreen
 
 class MainActivity : ComponentActivity() {
     private val pendingChat = mutableStateOf<String?>(null)
+    private val pendingInvite = mutableStateOf<String?>(null)
+
+    private fun handleInvite(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (data.scheme == "ryzik" && data.host == "join") {
+            parseInviteCode(data.toString())?.let { pendingInvite.value = it }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         pendingChat.value = intent?.getStringExtra(EXTRA_CHAT_ID)
+        handleInvite(intent)
         handleAccount(intent)
         handleCallAction(intent)
         val app = application as RyzikApp
@@ -89,6 +101,14 @@ class MainActivity : ComponentActivity() {
                             if (loggedIn) MainNav(pendingChat.value) { pendingChat.value = null }
                             else OnboardingNav(adding)
                         }
+                        val invite = pendingInvite.value
+                        if (invite != null && auth is AuthState.LoggedIn) {
+                            InviteDialog(
+                                invite,
+                                onDismiss = { pendingInvite.value = null },
+                                onOpenChat = { id -> pendingInvite.value = null; pendingChat.value = id },
+                            )
+                        }
                         // Звонок открывается поверх любого экрана.
                         val call by app.calls.state.collectAsState()
                         AnimatedVisibility(
@@ -105,6 +125,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         intent.getStringExtra(EXTRA_CHAT_ID)?.let { pendingChat.value = it }
+        handleInvite(intent)
         handleAccount(intent)
         handleCallAction(intent)
     }
@@ -256,6 +277,7 @@ private fun MainNav(pendingChat: String?, onPendingHandled: () -> Unit) {
             )
         }
         composable("premium") { PremiumScreen(onBack = { nav.popBackStack() }) }
+        composable("profilelook") { ProfileLookScreen(onBack = { nav.popBackStack() }, onOpenPremium = { nav.go("premium") }) }
         composable("addmembers/{id}") { e ->
             NewChatScreen(onBack = { nav.popBackStack() }, onOpenChat = {}, addToChatId = e.arguments?.getString("id"))
         }
@@ -272,6 +294,7 @@ private fun MainNav(pendingChat: String?, onPendingHandled: () -> Unit) {
                 onOpenSection = { nav.go("settings/${it.name}") },
                 onOpenAdmin = { nav.go("admin") },
                 onOpenPremium = { nav.go("premium") },
+                onOpenProfileLook = { nav.go("profilelook") },
                 onOpenSaved = { repo.savedChat()?.let { nav.go("chat/${it.id}") } },
             )
         }

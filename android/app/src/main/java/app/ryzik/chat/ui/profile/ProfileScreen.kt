@@ -1,5 +1,9 @@
 package app.ryzik.chat.ui.profile
 
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Star
@@ -105,14 +109,17 @@ fun ProfileScreen(userId: String, onBack: () -> Unit, onOpenChat: (String) -> Un
             }
             val pop = remember { Animatable(0.6f) }
             LaunchedEffect(Unit) { pop.animateTo(1f, spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessLow)) }
-            Spacer(Modifier.height(16.dp))
-            Avatar(
-                user.displayName, repo.avatarUrl(user.avatarFileId), 120.dp,
+            app.ryzik.chat.ui.premium.ProfileHeader(
+                name = user.displayName,
+                avatarUrl = repo.avatarUrl(user.avatarFileId),
                 online = user.online,
-                modifier = Modifier.graphicsLayer { scaleX = pop.value; scaleY = pop.value },
+                isPremium = user.isPremium,
+                isAdmin = user.isAdmin,
+                emojiStatus = user.emojiStatus,
+                style = user.profileStyle,
+                bannerUrl = repo.avatarUrl(user.profileStyle?.bannerFileId),
+                avatarScale = pop.value,
             )
-            Spacer(Modifier.height(16.dp))
-            NameWithBadges(user.displayName, emptyList(), user.isAdmin, MaterialTheme.typography.headlineSmall, isPremium = user.isPremium)
             Text("@${user.username}", color = MaterialTheme.colorScheme.primary)
             Text(
                 formatLastSeen(user.online, user.lastSeen),
@@ -249,6 +256,10 @@ fun ChatInfoScreen(
     var renaming by remember { mutableStateOf(false) }
     var newTitle by remember { mutableStateOf("") }
     var newDescription by remember { mutableStateOf("") }
+    var avatarBusy by remember { mutableStateOf(false) }
+    var infoError by remember { mutableStateOf<String?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     val myId = repo.myId
 
     if (chat?.type == "direct") {
@@ -272,27 +283,100 @@ fun ChatInfoScreen(
         )
     }) { padding ->
         if (chat == null) return@Scaffold
-        val owner = chat.members.any { it.user.id == myId && it.role == "owner" }
+        val owner = chat.members.any { it.user.id == myId && it.role == "owner" } || chat.myRole == "owner"
+        val canEdit = (chat.type == "group" && owner) || (chat.type == "channel" && (chat.myRole == "owner" || chat.myRole == "admin"))
+        val isGroupOrChannel = chat.type == "group" || chat.type == "channel"
         androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().padding(padding)) {
             item {
                 Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Avatar(repo.chatTitle(chat), repo.avatarUrl(chat.avatarFileId), 110.dp, saved = chat.type == "saved")
+                    if (canEdit) {
+                        app.ryzik.chat.ui.channel.AvatarPicker(repo.chatTitle(chat), repo.avatarUrl(chat.avatarFileId), 110.dp, busy = avatarBusy) { uri ->
+                            avatarBusy = true
+                            scope.launch {
+                                runCatching { repo.setChatAvatar(chat.id, repo.uploadAvatar(uri)) }
+                                    .onFailure { infoError = it.userMessage() }
+                                avatarBusy = false
+                            }
+                        }
+                    } else Avatar(repo.chatTitle(chat), repo.avatarUrl(chat.avatarFileId), 110.dp, saved = chat.type == "saved")
                     Spacer(Modifier.height(12.dp))
                     Text(repo.chatTitle(chat), style = MaterialTheme.typography.headlineSmall)
-                    if (chat.type == "group") Text("участников: ${chat.members.size}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (chat.type == "channel") {
-                        Text(app.ryzik.chat.ui.chats.subscribersText(chat.memberCount), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (isGroupOrChannel) {
+                        val count = if (chat.type == "group") app.ryzik.chat.ui.channel.membersText(maxOf(chat.memberCount, chat.members.size))
+                        else app.ryzik.chat.ui.chats.subscribersText(chat.memberCount)
+                        val kind = when {
+                            chat.type == "group" && chat.isPublic -> "публичная группа"
+                            chat.type == "group" -> "частная группа"
+                            chat.isPublic -> "публичный канал"
+                            else -> "частный канал"
+                        }
+                        Text("$kind · $count", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (chat.description.isNotBlank()) {
                             Spacer(Modifier.height(12.dp))
                             Text(chat.description, textAlign = TextAlign.Center)
                         }
                     }
+                    infoError?.let { Spacer(Modifier.height(8.dp)); Text(it, color = MaterialTheme.colorScheme.error) }
                     if (chat.type == "saved") Text(
                         "Здесь хранятся ваши заметки и сохранённые сообщения. Они тоже зашифрованы.",
                         textAlign = TextAlign.Center,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+            if (isGroupOrChannel && chat.myRole != null) {
+                val code = chat.inviteCode
+                if (code != null) item {
+                    val link = app.ryzik.chat.ui.channel.inviteLink(code)
+                    ListItem(
+                        headlineContent = { Text(link, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
+                        supportingContent = { Text("Ссылка-приглашение · нажмите, чтобы скопировать") },
+                        leadingContent = { Icon(Icons.Default.Link, null, tint = MaterialTheme.colorScheme.primary) },
+                        trailingContent = {
+                            IconButton(onClick = {
+                                val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
+                                    .putExtra(android.content.Intent.EXTRA_TEXT, "Присоединяйся к «${chat.title}» в RyzikChat: $link")
+                                context.startActivity(android.content.Intent.createChooser(send, "Поделиться ссылкой"))
+                            }) { Icon(Icons.Default.Share, "Поделиться") }
+                        },
+                        modifier = Modifier.clickable {
+                            clipboard.setText(androidx.compose.ui.text.AnnotatedString(link))
+                            android.widget.Toast.makeText(context, "Ссылка скопирована", android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                    )
+                }
+                if (canEdit && code != null) item {
+                    ListItem(
+                        headlineContent = { Text("Сменить ссылку") },
+                        supportingContent = { Text("Старая ссылка перестанет работать") },
+                        leadingContent = { Icon(Icons.Default.Refresh, null) },
+                        modifier = Modifier.clickable { scope.launch { runCatching { repo.resetInvite(chat.id) }.onFailure { infoError = it.userMessage() } } },
+                    )
+                }
+                if (chat.myRole == "owner") item {
+                    ListItem(
+                        headlineContent = { Text(if (chat.type == "channel") "Публичный канал" else "Публичная группа") },
+                        supportingContent = {
+                            Text(
+                                if (chat.isPublic) "Виден в поиске, ${if (chat.type == "channel") "подписаться" else "вступить"} может любой"
+                                else "Скрыт из поиска, только по ссылке-приглашению"
+                            )
+                        },
+                        leadingContent = { Icon(if (chat.isPublic) Icons.Default.Public else Icons.Default.Lock, null) },
+                        trailingContent = {
+                            androidx.compose.material3.Switch(chat.isPublic, onCheckedChange = { v ->
+                                scope.launch { runCatching { repo.setChatPublic(chat.id, v) }.onFailure { infoError = it.userMessage() } }
+                            })
+                        },
+                    )
+                }
+            }
+            if (chat.type == "group" && chat.myRole == null && chat.isPublic) item {
+                ListItem(
+                    headlineContent = { Text("Вступить в группу", color = MaterialTheme.colorScheme.primary) },
+                    leadingContent = { Icon(Icons.Default.PersonAdd, null, tint = MaterialTheme.colorScheme.primary) },
+                    modifier = Modifier.clickable { scope.launch { runCatching { repo.subscribe(chat.id) }.onFailure { infoError = it.userMessage() } } },
+                )
             }
             if (chat.type == "channel") {
                 if (chat.myRole != null) item {
@@ -309,7 +393,7 @@ fun ChatInfoScreen(
                     val m = chat.members[i]
                     val u = users[m.user.id] ?: m.user
                     ListItem(
-                        headlineContent = { NameWithBadges(u.displayName, u.badges, u.isAdmin, MaterialTheme.typography.bodyLarge, isPremium = u.isPremium) },
+                        headlineContent = { NameWithBadges(u.displayName, u.badges, u.isAdmin, MaterialTheme.typography.bodyLarge, isPremium = u.isPremium, emojiStatus = u.emojiStatus) },
                         supportingContent = { Text(if (m.role == "owner") "владелец" else "админ") },
                         leadingContent = { Avatar(u.displayName, repo.avatarUrl(u.avatarFileId), 44.dp, online = u.online) },
                         trailingContent = {
@@ -336,7 +420,7 @@ fun ChatInfoScreen(
                     }
                 }
             }
-            if (chat.type == "group") {
+            if (chat.type == "group" && chat.myRole != null) {
                 if (owner) item {
                     ListItem(
                         headlineContent = { Text("Добавить участников") },
@@ -348,7 +432,7 @@ fun ChatInfoScreen(
                     val m = chat.members[i]
                     val u = users[m.user.id] ?: m.user
                     ListItem(
-                        headlineContent = { NameWithBadges(u.displayName, u.badges, u.isAdmin, MaterialTheme.typography.bodyLarge) },
+                        headlineContent = { NameWithBadges(u.displayName, u.badges, u.isAdmin, MaterialTheme.typography.bodyLarge, isPremium = u.isPremium, emojiStatus = u.emojiStatus) },
                         supportingContent = { Text(if (m.role == "owner") "владелец" else formatLastSeen(u.online, u.lastSeen)) },
                         leadingContent = { Avatar(u.displayName, repo.avatarUrl(u.avatarFileId), 44.dp, online = u.online) },
                         trailingContent = {
@@ -375,11 +459,11 @@ fun ChatInfoScreen(
     if (renaming && chat != null) {
         AlertDialog(
             onDismissRequest = { renaming = false },
-            title = { Text(if (chat.type == "channel") "Канал" else "Название группы") },
+            title = { Text(if (chat.type == "channel") "Канал" else "Группа") },
             text = {
                 Column {
                     OutlinedTextField(newTitle, { newTitle = it.take(128) }, singleLine = true, label = { Text("Название") })
-                    if (chat.type == "channel") {
+                    if (chat.type == "channel" || chat.type == "group") {
                         Spacer(Modifier.height(8.dp))
                         OutlinedTextField(newDescription, { newDescription = it.take(500) }, label = { Text("Описание") }, maxLines = 5)
                     }
@@ -390,8 +474,7 @@ fun ChatInfoScreen(
                     renaming = false
                     scope.launch {
                         runCatching {
-                            if (chat.type == "channel") repo.updateChannel(chat.id, newTitle.trim(), newDescription.trim())
-                            else repo.renameGroup(chat.id, newTitle.trim())
+                            repo.updateChannel(chat.id, newTitle.trim(), newDescription.trim())
                         }
                     }
                 }) { Text("Сохранить") }
