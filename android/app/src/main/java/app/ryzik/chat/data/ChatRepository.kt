@@ -111,10 +111,6 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
     private val decryptCache = ConcurrentHashMap<String, Content?>()
 
     /** Почта аккаунта (её видит только владелец). */
-    data class EmailState(val email: String? = null, val verified: Boolean = false, val available: Boolean = false)
-
-    private val _email = MutableStateFlow(EmailState())
-    val email: StateFlow<EmailState> = _email
     private val _contacts = MutableStateFlow<List<User>>(emptyList())
     val contacts: StateFlow<List<User>> = _contacts
 
@@ -254,16 +250,6 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
 
     fun cancelLoginCode() { pendingLogin = null }
 
-    // ================= Почта =================
-
-
-    private fun updateEmail(me: User) { _email.value = EmailState(me.email, me.emailVerified, me.emailAvailable) }
-
-    suspend fun refreshEmail() { runCatching { api.me() }.onSuccess { updateEmail(it) } }
-    suspend fun startEmail(email: String): EmailChallenge = api.startEmail(email.trim())
-    suspend fun verifyEmail(challengeId: String, code: String) = updateEmail(api.verifyEmail(challengeId, code.trim()))
-    suspend fun removeEmail() = updateEmail(api.removeEmail())
-
     // ================= Контакты =================
 
 
@@ -304,7 +290,6 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
         scope.launch { prefs.updateAccountInfo(me.id, me.displayName, me.avatarFileId) }
         _auth.value = AuthState.LoggedIn(me)
         scope.launch { refreshChats() }
-        scope.launch { refreshEmail() }
         scope.launch { runCatching { refreshContacts() } }
         connectSocket()
     }
@@ -337,7 +322,6 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
         _typing.value = emptyMap()
         _readStates.value = emptyMap()
         _contacts.value = emptyList()
-        _email.value = EmailState()
     }
 
     private suspend fun resetLocal() {
@@ -413,7 +397,7 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
         }
     }
 
-    fun avatarUrl(fileId: String?) = fileId?.let { api.fileUrl(it) }
+    fun avatarUrl(fileId: String?) = fileId?.let { api.avatarUrl(it) }
 
     // ================= Чаты =================
 

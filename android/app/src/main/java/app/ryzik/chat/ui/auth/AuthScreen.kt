@@ -315,7 +315,6 @@ private fun LoginCodeStep(step: app.ryzik.chat.data.LoginResponse, onBack: () ->
 
     val where = buildList {
         if ("chat" in step.sentTo) add("в чат «RyzikChat Info» на устройстве, где вы уже вошли")
-        if ("email" in step.sentTo) add("на почту ${step.emailHint.orEmpty()}")
     }.joinToString(" и ")
 
     Column(

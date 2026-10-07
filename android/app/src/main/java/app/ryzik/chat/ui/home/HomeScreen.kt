@@ -18,6 +18,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -79,7 +80,9 @@ fun HomeScreen(tab: HomeTab, onTab: (HomeTab) -> Unit, content: @Composable (Hom
             Modifier
                 .fillMaxSize()
                 .padding(bottom = padding.calculateBottomPadding())
-                .consumeWindowInsets(padding),
+                // Забираем только низ (там панель вкладок). Верх оставляем экранам,
+                // иначе их заголовки уезжали под строку состояния со шторкой уведомлений.
+                .consumeWindowInsets(PaddingValues(bottom = padding.calculateBottomPadding())),
         ) {
             AnimatedContent(
                 tab,

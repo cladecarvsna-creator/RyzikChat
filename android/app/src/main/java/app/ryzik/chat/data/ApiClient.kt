@@ -102,10 +102,6 @@ class ApiClient(
 
     // ---------- почта ----------
 
-    suspend fun startEmail(email: String) = call("PUT", "/api/me/email", buildJsonObject { put("email", email) }, EmailChallenge.serializer())
-    suspend fun verifyEmail(challengeId: String, code: String) =
-        call("POST", "/api/me/email/verify", buildJsonObject { put("challengeId", challengeId); put("code", code) }, User.serializer())
-    suspend fun removeEmail() = call("DELETE", "/api/me/email", null, User.serializer())
 
     // ---------- контакты ----------
 
@@ -289,6 +285,9 @@ class ApiClient(
     }
 
     fun fileUrl(fileId: String) = "$baseUrl/api/files/$fileId"
+
+    /** Аватарки и обложки отдаются без токена, поэтому их может загрузить Coil. */
+    fun avatarUrl(fileId: String) = "$baseUrl/api/avatars/$fileId"
 
     // ---------- badges / admin ----------
 

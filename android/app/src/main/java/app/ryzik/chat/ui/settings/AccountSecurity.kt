@@ -14,8 +14,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.MarkEmailRead
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -35,89 +33,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.ryzik.chat.RyzikApp
-import app.ryzik.chat.data.EmailChallenge
 import app.ryzik.chat.data.User
 import app.ryzik.chat.data.userMessage
 import app.ryzik.chat.ui.components.Avatar
 import kotlinx.coroutines.launch
-
-/** Привязка почты: на неё приходят коды входа. */
-@Composable
-fun EmailSection() {
-    val repo = RyzikApp.instance.repo
-    val email by repo.email.collectAsState()
-    val scope = rememberCoroutineScope()
-    var dialog by remember { mutableStateOf(false) }
-    var address by remember { mutableStateOf("") }
-    var challenge by remember { mutableStateOf<EmailChallenge?>(null) }
-    var code by remember { mutableStateOf("") }
-    var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) { repo.refreshEmail() }
-
-    ListItem(
-        headlineContent = { Text(if (email.verified) email.email.orEmpty() else "Привязать почту") },
-        supportingContent = {
-            Text(
-                when {
-                    email.verified -> "Коды для входа приходят и на эту почту"
-                    !email.available -> "Сервер пока не умеет отправлять письма: владельцу сервера нужно указать SMTP"
-                    else -> "Коды для входа будут приходить на почту"
-                }
-            )
-        },
-        leadingContent = { Icon(if (email.verified) Icons.Default.MarkEmailRead else Icons.Default.Email, null) },
-        trailingContent = {
-            if (email.verified) TextButton(onClick = { scope.launch { runCatching { repo.removeEmail() } } }) { Text("Отвязать") }
-        },
-        modifier = Modifier.clickable(enabled = !email.verified) {
-            address = ""; code = ""; challenge = null; error = null; dialog = true
-        },
-    )
-
-    if (dialog) {
-        val ch = challenge
-        AlertDialog(
-            onDismissRequest = { dialog = false },
-            title = { Text(if (ch == null) "Ваша почта" else "Код из письма") },
-            text = {
-                Column {
-                    if (ch == null) {
-                        OutlinedTextField(
-                            address, { address = it.trim(); error = null },
-                            label = { Text("Почта") }, singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    } else {
-                        Text("Мы отправили код на ${ch.emailHint ?: address}.", style = MaterialTheme.typography.bodyMedium)
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(
-                            code, { v -> code = v.filter { it.isDigit() }.take(6); error = null },
-                            label = { Text("Код") }, singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                    error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp)) }
-                }
-            },
-            confirmButton = {
-                TextButton(enabled = !busy, onClick = {
-                    busy = true
-                    scope.launch {
-                        runCatching {
-                            if (ch == null) challenge = repo.startEmail(address)
-                            else { repo.verifyEmail(ch.challengeId, code); dialog = false }
-                        }.onFailure { error = it.userMessage() }
-                        busy = false
-                    }
-                }) { Text(if (ch == null) "Отправить код" else "Подтвердить") }
-            },
-            dismissButton = { TextButton(onClick = { dialog = false }) { Text("Отмена") } },
-        )
-    }
-}
 
 /** Список заблокированных с возможностью разблокировать. */
 @Composable

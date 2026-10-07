@@ -594,8 +594,6 @@ private fun PrivacySettings(s: AppSettings, update: ((AppSettings) -> AppSetting
     var info by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { sessions = runCatching { repo.api.sessions() }.getOrDefault(emptyList()) }
 
-    Header("Почта")
-    EmailSection()
     Header("Заблокированные")
     BlockedSection()
 

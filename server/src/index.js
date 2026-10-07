@@ -4,16 +4,11 @@ import { fileURLToPath } from 'node:url';
 import { openDb } from './db.js';
 import { createApp } from './app.js';
 import { Hub } from './realtime.js';
-import { mailConfigFromEnv, sendMail } from './mail.js';
 
-export function startServer({ port = 8080, dataDir = './data', adminUsernames = [], mailer } = {}) {
+export function startServer({ port = 8080, dataDir = './data', adminUsernames = [] } = {}) {
   const db = openDb(dataDir);
   const hub = new Hub();
-  if (mailer === undefined) {
-    const cfg = mailConfigFromEnv();
-    mailer = cfg ? (msg) => sendMail(cfg, msg) : null;
-  }
-  const app = createApp({ db, dataDir, hub, adminUsernames, mailer });
+  const app = createApp({ db, dataDir, hub, adminUsernames });
   const server = http.createServer(app);
   const wss = hub.attach(server, app.locals);
   return new Promise((resolve) => {

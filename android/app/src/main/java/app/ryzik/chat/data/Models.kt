@@ -36,10 +36,6 @@ data class User(
     val isBlocked: Boolean = false,
     /** Служебный аккаунт RyzikChat Info. */
     val isService: Boolean = false,
-    /** Только в /api/me: привязанная почта. */
-    val email: String? = null,
-    val emailVerified: Boolean = false,
-    val emailAvailable: Boolean = false,
 )
 
 /** Ответ на вход: либо сразу сессия, либо нужен код подтверждения. */
@@ -51,11 +47,7 @@ data class LoginResponse(
     val needCode: Boolean = false,
     val challengeId: String? = null,
     val sentTo: List<String> = emptyList(),
-    val emailHint: String? = null,
 )
-
-@Serializable
-data class EmailChallenge(val challengeId: String, val emailHint: String? = null)
 
 /** Оформление профиля с Премиумом. Цвета в виде #RRGGBB. */
 @Serializable

@@ -41,7 +41,7 @@ function verifyPassword(password, stored) {
  * Создаёт express-приложение. `hub` — объект с методами sendToUsers / isOnline
  * (реализован в realtime.js), через него REST-запросы рассылают события по WebSocket.
  */
-export function createApp({ db, dataDir, hub, adminUsernames = [], mailer = null }) {
+export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
   const filesDir = path.join(dataDir, 'files');
   fs.mkdirSync(filesDir, { recursive: true });
 
@@ -194,7 +194,6 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], mailer = null
 
   const CODE_TTL_MS = 10 * 60_000;
   const hashCode = (code) => crypto.createHash('sha256').update(code).digest('hex');
-  const maskEmail = (e) => e.replace(/^(.)(.*)(@.*)$/, (_m, a, b, c) => a + '*'.repeat(Math.min(b.length, 5)) + c);
 
   /** Проверяет код подтверждения. Пять неверных попыток — и код сгорает. */
   function checkCode(id, kind, code, userId = null) {
@@ -293,7 +292,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], mailer = null
     return token;
   }
 
-  app.get('/api/health', (_req, res) => res.json({ ok: true, name: 'RyzikChat', version: '0.5.0', apiVersion: 1 }));
+  app.get('/api/health', (_req, res) => res.json({ ok: true, name: 'RyzikChat', version: '0.5.1', apiVersion: 1 }));
 
   // Открытое описание API — чтобы можно было написать клиент под любое устройство.
   app.get('/api/openapi.json', (_req, res) => res.sendFile(path.join(import.meta.dirname, '..', 'openapi.json')));
@@ -334,26 +333,16 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], mailer = null
       throw new HttpError(401, 'bad_credentials', 'Неверное имя пользователя или пароль');
     }
     const sessions = db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE user_id = ?').get(row.id).n;
-    const email = row.email_verified && mailer ? row.email : null;
-    // Если аккаунт уже открыт на другом устройстве или привязана почта — нужен код подтверждения.
-    if (sessions > 0 || email) {
+    // Если аккаунт уже открыт на другом устройстве — нужен код из чата «RyzikChat Info».
+    if (sessions > 0) {
       const code = String(crypto.randomInt(100000, 1000000));
       const id = newId();
       db.prepare('INSERT INTO codes (id, user_id, kind, code_hash, data, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
         .run(id, row.id, 'login', hashCode(code), String(device ?? '').slice(0, 100), now() + CODE_TTL_MS);
-      const sentTo = [];
-      if (sessions > 0) {
-        ensureInfoChat(row.id);
-        postInfo(row.id, `Код для входа в RyzikChat: ${code}\n\nКто-то входит в ваш аккаунт с устройства «${String(device || 'неизвестно').slice(0, 60)}». ` +
-          'Никому не сообщайте этот код. Если это не вы, смените пароль в настройках.');
-        sentTo.push('chat');
-      }
-      if (email) {
-        sentTo.push('email');
-        mailer({ to: email, subject: `Код для входа в RyzikChat: ${code}`, text: `Ваш код для входа в RyzikChat: ${code}\n\nЕсли это не вы, просто проигнорируйте письмо и смените пароль.` })
-          .catch((e) => console.error('Не удалось отправить письмо:', e.message));
-      }
-      return res.json({ needCode: true, challengeId: id, sentTo, emailHint: email ? maskEmail(email) : null });
+      ensureInfoChat(row.id);
+      postInfo(row.id, `Код для входа в RyzikChat: ${code}\n\nКто-то входит в ваш аккаунт с устройства «${String(device || 'неизвестно').slice(0, 60)}». ` +
+        'Никому не сообщайте этот код. Если это не вы, смените пароль в настройках.');
+      return res.json({ needCode: true, challengeId: id, sentTo: ['chat'] });
     }
     const token = createSession(row.id, device);
     res.json({ token, user: publicUser(row), encryptedPrivateKey: row.encrypted_private_key });
@@ -365,6 +354,19 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], mailer = null
     const user = getUserRow.get(row.user_id);
     const token = createSession(user.id, row.data);
     res.json({ token, user: publicUser(user), encryptedPrivateKey: user.encrypted_private_key });
+  });
+
+  // Аватарки и обложки профилей видны всем (как имя), поэтому отдаём их без токена:
+  // так их может загрузить любой загрузчик картинок. Другие файлы — только после входа.
+  app.get('/api/avatars/:id', (req, res) => {
+    const id = String(req.params.id);
+    const used = db.prepare('SELECT 1 FROM users WHERE avatar_file_id = ? UNION ALL SELECT 1 FROM chats WHERE avatar_file_id = ? LIMIT 1').get(id, id) ||
+      db.prepare("SELECT 1 FROM users WHERE profile_style LIKE ? LIMIT 1").get(`%"${id.replace(/[%_"]/g, '')}"%`);
+    const row = used && db.prepare('SELECT * FROM files WHERE id = ?').get(id);
+    if (!row) throw new HttpError(404, 'file_not_found', 'Файл не найден');
+    res.type(row.mime);
+    res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    res.sendFile(path.join(filesDir, row.id));
   });
 
   app.use('/api', auth);
@@ -394,43 +396,10 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], mailer = null
 
   const meView = (id) => {
     const row = getUserRow.get(id);
-    return { ...publicUser(row), email: row.email ?? null, emailVerified: !!row.email_verified, emailAvailable: !!mailer };
+    return publicUser(row);
   };
 
   app.get('/api/me', (req, res) => res.json(meView(req.userId)));
-
-  // ---------- почта ----------
-
-  app.put('/api/me/email', async (req, res, next) => {
-    try {
-      const email = String(req.body?.email ?? '').trim().toLowerCase();
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200) throw new HttpError(400, 'bad_email', 'Неверный адрес почты');
-      if (!mailer) throw new HttpError(503, 'email_unavailable', 'На сервере не настроена отправка писем (SMTP)');
-      const code = String(crypto.randomInt(100000, 1000000));
-      db.prepare("DELETE FROM codes WHERE user_id = ? AND kind = 'email'").run(req.userId);
-      const id = newId();
-      db.prepare('INSERT INTO codes (id, user_id, kind, code_hash, data, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(id, req.userId, 'email', hashCode(code), email, now() + CODE_TTL_MS);
-      try {
-        await mailer({ to: email, subject: `Код подтверждения RyzikChat: ${code}`, text: `Ваш код для привязки почты к RyzikChat: ${code}` });
-      } catch (e) {
-        console.error('Не удалось отправить письмо:', e.message);
-        throw new HttpError(502, 'email_failed', 'Не удалось отправить письмо. Проверьте адрес');
-      }
-      res.json({ challengeId: id, emailHint: maskEmail(email) });
-    } catch (e) { next(e); }
-  });
-
-  app.post('/api/me/email/verify', (req, res) => {
-    const row = checkCode(String(req.body?.challengeId ?? ''), 'email', String(req.body?.code ?? ''), req.userId);
-    db.prepare('UPDATE users SET email = ?, email_verified = 1 WHERE id = ?').run(row.data, req.userId);
-    res.json(meView(req.userId));
-  });
-
-  app.delete('/api/me/email', (req, res) => {
-    db.prepare('UPDATE users SET email = NULL, email_verified = 0 WHERE id = ?').run(req.userId);
-    res.json(meView(req.userId));
-  });
 
   // ---------- контакты и блокировка ----------
 

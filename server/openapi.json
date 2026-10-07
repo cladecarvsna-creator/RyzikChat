@@ -129,7 +129,7 @@
      }
     },
     "security": [],
-    "description": "Если у аккаунта уже есть активные сессии или привязана подтверждённая почта, вместо токена приходит {needCode, challengeId, sentTo, emailHint}: 6-значный код отправлен в чат «RyzikChat Info» и/или на почту. Вход завершается через /api/auth/login/confirm."
+    "description": "Если у аккаунта уже есть активные сессии, вместо токена приходит {needCode, challengeId, sentTo}: 6-значный код отправлен в чат «RyzikChat Info» на другом устройстве. Вход завершается через /api/auth/login/confirm."
    }
   },
   "/api/auth/logout": {
@@ -1626,98 +1626,6 @@
     }
    }
   },
-  "/api/me/email": {
-   "put": {
-    "summary": "Привязать почту (отправляет код)",
-    "tags": [
-     "Аккаунт"
-    ],
-    "requestBody": {
-     "required": true,
-     "content": {
-      "application/json": {
-       "schema": {
-        "type": "object",
-        "properties": {
-         "email": {
-          "type": "string"
-         }
-        }
-       }
-      }
-     }
-    },
-    "responses": {
-     "200": {
-      "description": "OK",
-      "content": {
-       "application/json": {
-        "schema": {
-         "type": "object",
-         "properties": {
-          "challengeId": {
-           "type": "string"
-          },
-          "email": {
-           "type": "string"
-          }
-         }
-        }
-       }
-      }
-     }
-    }
-   },
-   "delete": {
-    "summary": "Отвязать почту",
-    "tags": [
-     "Аккаунт"
-    ],
-    "responses": {
-     "200": {
-      "description": "OK"
-     }
-    }
-   }
-  },
-  "/api/me/email/verify": {
-   "post": {
-    "summary": "Подтвердить почту кодом",
-    "tags": [
-     "Аккаунт"
-    ],
-    "requestBody": {
-     "required": true,
-     "content": {
-      "application/json": {
-       "schema": {
-        "type": "object",
-        "properties": {
-         "challengeId": {
-          "type": "string"
-         },
-         "code": {
-          "type": "string"
-         }
-        }
-       }
-      }
-     }
-    },
-    "responses": {
-     "200": {
-      "description": "OK",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/User"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
   "/api/contacts": {
    "get": {
     "summary": "Мои контакты",
@@ -1856,6 +1764,30 @@
         }
        }
       }
+     }
+    }
+   }
+  },
+  "/api/avatars/{id}": {
+   "parameters": [
+    {
+     "name": "id",
+     "in": "path",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    }
+   ],
+   "get": {
+    "summary": "Аватарка или обложка профиля (без токена)",
+    "tags": [
+     "Пользователи"
+    ],
+    "security": [],
+    "responses": {
+     "200": {
+      "description": "Картинка"
      }
     }
    }

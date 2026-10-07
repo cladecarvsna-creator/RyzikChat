@@ -278,59 +278,24 @@ test('контакты, блокировка, «в сети», почта', asyn
 
   // Служебного пользователя не найти поиском
   assert.equal((await api('GET', '/api/users/search?q=ryzikchat', null, p.token)).body.length, 0);
-
-  // Без настроенного SMTP привязать почту нельзя
-  assert.equal((await api('PUT', '/api/me/email', { email: 'p@example.com' }, p.token)).body.error, 'email_unavailable');
 });
 
-test('почта: привязка и код входа на почту (через свой SMTP)', async () => {
-  const net = await import('node:net');
-  const { sendMail } = await import('../src/mail.js');
-  const mails = [];
-  // Простейший SMTP-сервер для проверки нашего клиента.
-  const smtp = net.createServer((sock) => {
-    let data = false, body = '';
-    sock.write('220 test\r\n');
-    sock.on('data', (chunk) => {
-      for (const line of String(chunk).split('\r\n').filter((l, i, a) => i < a.length - 1 || l)) {
-        if (data) {
-          if (line === '.') { data = false; mails.push(body); sock.write('250 ok\r\n'); } else body += line + '\n';
-        } else if (line.startsWith('EHLO')) sock.write('250-test\r\n250 AUTH LOGIN\r\n');
-        else if (line === 'DATA') { data = true; body = ''; sock.write('354 go\r\n'); }
-        else if (line === 'QUIT') sock.end('221 bye\r\n');
-        else sock.write('250 ok\r\n');
-      }
-    });
-  });
-  await new Promise((r) => smtp.listen(0, r));
-  const cfg = { host: '127.0.0.1', port: smtp.address().port, user: '', pass: '', from: 'bot@example.com' };
-  const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'ryzik-mail-'));
-  const srv2 = await startServer({ port: 0, dataDir: dir2, mailer: (m) => sendMail(cfg, m) });
-  const base2 = `http://127.0.0.1:${srv2.port}`;
-  const call = async (method, url, body, token) => {
-    const res = await fetch(base2 + url, { method, headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: body ? JSON.stringify(body) : undefined });
-    return res.json();
+test('аватарки открываются без токена, остальные файлы — нет', async () => {
+  const u = (await reg('avatarka')).body;
+  const upload = async () => {
+    const form = new FormData();
+    form.append('mime', 'image/png');
+    form.append('file', new Blob([Buffer.from('fake-png')]), 'blob');
+    const res = await fetch(base + '/api/files', { method: 'POST', headers: { authorization: `Bearer ${u.token}` }, body: form });
+    return (await res.json()).id;
   };
-  const decode = (mail) => Buffer.from(mail.split('\n\n')[1].replace(/\n/g, ''), 'base64').toString('utf8');
-  try {
-    const u = await call('POST', '/api/auth/register', { username: 'mailer', password: 'x'.repeat(64), publicKey: 'pk', encryptedPrivateKey: 'enc' });
-    const start = await call('PUT', '/api/me/email', { email: 'Me@Example.com' }, u.token);
-    assert.equal(start.emailHint, 'm*@example.com');
-    const code = decode(mails.at(-1)).match(/\d{6}/)[0];
-    const me = await call('POST', '/api/me/email/verify', { challengeId: start.challengeId, code }, u.token);
-    assert.equal(me.email, 'me@example.com');
-    assert.equal(me.emailVerified, true);
-
-    // Выходим со всех устройств: код всё равно нужен — он придёт на почту.
-    await call('POST', '/api/auth/logout', null, u.token);
-    const step1 = await call('POST', '/api/auth/login', { username: 'mailer', password: 'x'.repeat(64) });
-    assert.deepEqual(step1.sentTo, ['email']);
-    await new Promise((r) => setTimeout(r, 200));
-    const code2 = decode(mails.at(-1)).match(/\d{6}/)[0];
-    const ok = await call('POST', '/api/auth/login/confirm', { challengeId: step1.challengeId, code: code2 });
-    assert.ok(ok.token);
-  } finally {
-    srv2.wss.close(); srv2.server.closeAllConnections(); srv2.server.close(); smtp.close();
-    fs.rmSync(dir2, { recursive: true, force: true });
-  }
+  const avatar = await upload();
+  const secret = await upload();
+  await api('PATCH', '/api/me', { avatarFileId: avatar }, u.token);
+  const ok = await fetch(`${base}/api/avatars/${avatar}`);
+  assert.equal(ok.status, 200);
+  assert.equal(ok.headers.get('content-type'), 'image/png');
+  assert.equal(await ok.text(), 'fake-png');
+  assert.equal((await fetch(`${base}/api/avatars/${secret}`)).status, 404, 'не аватарку так не скачать');
+  assert.equal((await fetch(`${base}/api/files/${secret}`)).status, 401);
 });
