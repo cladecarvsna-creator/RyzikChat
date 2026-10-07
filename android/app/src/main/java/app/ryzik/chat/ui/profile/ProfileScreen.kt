@@ -181,7 +181,7 @@ fun ProfileScreen(
                     ProfileAction(Icons.Default.Edit, "Изменить", Modifier.weight(1f)) {
                         name = user.displayName; bio = user.bio; editing = true
                     }
-                    ProfileAction(Icons.Default.Palette, "Оформление", Modifier.weight(1f), onOpenProfileLook)
+                    ProfileAction(Icons.Default.Palette, "Оформление", Modifier.weight(1f), onClick = onOpenProfileLook)
                 }
                 Spacer(Modifier.height(12.dp))
                 ElevatedCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
