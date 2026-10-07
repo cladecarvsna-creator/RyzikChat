@@ -1,5 +1,6 @@
 import http from 'node:http';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { openDb } from './db.js';
 import { createApp } from './app.js';
 import { Hub } from './realtime.js';
@@ -15,7 +16,11 @@ export function startServer({ port = 8080, dataDir = './data', adminUsernames = 
   });
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Запуск напрямую (`npm start`). Сравниваем пути, а не строки URL: на Windows и в папках
+// с русскими буквами URL выглядит иначе, и раньше сервер молча завершался.
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isMain) {
   const port = Number(process.env.PORT ?? 8080);
   const dataDir = path.resolve(process.env.DATA_DIR ?? './data');
   const adminUsernames = (process.env.ADMIN_USERNAMES ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
