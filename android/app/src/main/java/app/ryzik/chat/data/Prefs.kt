@@ -1,5 +1,7 @@
 package app.ryzik.chat.data
 
+import kotlinx.serialization.builtins.ListSerializer
+import androidx.datastore.preferences.core.MutablePreferences
 import android.content.Context
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -50,6 +52,20 @@ data class StoredSession(
     val wrappedPrivateKey: String?,
 )
 
+/** Сохранённый аккаунт: можно держать несколько и переключаться между ними. */
+@kotlinx.serialization.Serializable
+data class SavedAccount(
+    val serverUrl: String,
+    val token: String,
+    val userId: String,
+    val username: String,
+    val displayName: String = "",
+    val avatarFileId: String? = null,
+    val wrappedPrivateKey: String,
+)
+
+const val MAX_ACCOUNTS = 3
+
 class Prefs(private val context: Context) {
     private object K {
         val onboarding = booleanPreferencesKey("onboarding_done")
@@ -79,6 +95,7 @@ class Prefs(private val context: Context) {
         val userId = stringPreferencesKey("user_id")
         val username = stringPreferencesKey("username")
         val privKey = stringPreferencesKey("wrapped_private_key")
+        val accounts = stringPreferencesKey("accounts")
     }
 
     val settings: Flow<AppSettings> = context.store.data.map { read(it) }
@@ -151,8 +168,31 @@ class Prefs(private val context: Context) {
         context.store.edit { it[K.server] = url.trim().trimEnd('/') }
     }
 
+    private fun readAccounts(p: Preferences): List<SavedAccount> {
+        val list = p[K.accounts]?.let { runCatching { AppJson.decodeFromString(ListSerializer(SavedAccount.serializer()), it) }.getOrNull() }.orEmpty()
+        // Аккаунт из прошлой версии приложения, где был только один вход
+        val token = p[K.token]
+        val userId = p[K.userId]
+        val key = p[K.privKey]
+        if (token != null && userId != null && key != null && list.none { it.userId == userId }) {
+            return listOf(SavedAccount(p[K.server] ?: BuildConfig.DEFAULT_SERVER, token, userId, p[K.username] ?: "", p[K.username] ?: "", null, key)) + list
+        }
+        return list
+    }
+
+    private fun writeAccounts(p: MutablePreferences, list: List<SavedAccount>) {
+        p[K.accounts] = AppJson.encodeToString(ListSerializer(SavedAccount.serializer()), list)
+    }
+
+    val accounts: Flow<List<SavedAccount>> = context.store.data.map { readAccounts(it) }
+
     suspend fun saveSession(token: String, userId: String, username: String, wrappedPrivateKey: String) {
         context.store.edit {
+            val server = it[K.server] ?: BuildConfig.DEFAULT_SERVER
+            val old = readAccounts(it)
+            val prev = old.firstOrNull { a -> a.userId == userId }
+            val acc = SavedAccount(server, token, userId, username, prev?.displayName ?: username, prev?.avatarFileId, wrappedPrivateKey)
+            writeAccounts(it, old.filterNot { a -> a.userId == userId } + acc)
             it[K.token] = token
             it[K.userId] = userId
             it[K.username] = username
@@ -160,16 +200,39 @@ class Prefs(private val context: Context) {
         }
     }
 
-    suspend fun saveWrappedKey(wrappedPrivateKey: String) {
-        context.store.edit { it[K.privKey] = wrappedPrivateKey }
+    /** Обновляет имя и аватар аккаунта в списке для переключателя. */
+    suspend fun updateAccountInfo(userId: String, displayName: String, avatarFileId: String?) {
+        context.store.edit {
+            val list = readAccounts(it)
+            if (list.any { a -> a.userId == userId }) {
+                writeAccounts(it, list.map { a -> if (a.userId == userId) a.copy(displayName = displayName, avatarFileId = avatarFileId) else a })
+            }
+        }
     }
 
-    suspend fun clearSession() {
+    /** Делает аккаунт текущим. */
+    suspend fun activate(acc: SavedAccount) {
         context.store.edit {
+            it[K.server] = acc.serverUrl
+            it[K.token] = acc.token
+            it[K.userId] = acc.userId
+            it[K.username] = acc.username
+            it[K.privKey] = acc.wrappedPrivateKey
+        }
+    }
+
+    /** Выход из текущего аккаунта: он удаляется из списка. Возвращает оставшиеся аккаунты. */
+    suspend fun clearSession(): List<SavedAccount> {
+        var rest: List<SavedAccount> = emptyList()
+        context.store.edit {
+            val current = it[K.userId]
+            rest = readAccounts(it).filterNot { a -> a.userId == current }
+            writeAccounts(it, rest)
             it.remove(K.token)
             it.remove(K.userId)
             it.remove(K.username)
             it.remove(K.privKey)
         }
+        return rest
     }
 }

@@ -583,7 +583,11 @@ fun ChatScreen(
                                 onDrag = { dragX = it },
                                 onEnd = { cancel ->
                                     dragX = 0f
-                                    if (recordMode == "voice") finishVoice(!cancel) else squareRecorder.finish(send = !cancel)
+                                    if (recordMode == "voice") finishVoice(!cancel)
+                                    else {
+                                        if (!cancel && squareRecorder.elapsed() < 800) error = "Держите кнопку, пока идёт запись квадратика"
+                                        squareRecorder.finish(send = !cancel)
+                                    }
                                 },
                                 cancelDistance = cancelDistance,
                             )

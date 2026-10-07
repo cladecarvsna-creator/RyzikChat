@@ -141,8 +141,8 @@ fun MessageBubble(
 
     val c = msg.content
     val emojiOnly = style.bigEmoji && msg.type == "text" && c != null && isEmojiOnly(c.text)
-    val isMedia = (msg.type == "image" || msg.type == "video") && c?.file != null
-    val isSquare = msg.type == "square" && c?.file != null && !msg.deleted
+    val isSquare = (msg.type == "square" || (msg.type == "video" && c?.file?.square == true)) && c?.file != null && !msg.deleted
+    val isMedia = (msg.type == "image" || msg.type == "video") && c?.file != null && !isSquare
     val bare = emojiOnly || isSquare
     val context = LocalContext.current
 
@@ -251,11 +251,11 @@ fun MessageBubble(
                 when {
                     msg.deleted -> InfoText("🗑 Сообщение удалено", onBubble)
                     c == null -> InfoText("🔒 Не удалось расшифровать", onBubble)
+                    isSquare && c.file != null -> SquareContent(msg, c.file, autoDownload)
                     msg.type == "image" && c.file != null -> MediaImage(msg, c.file, autoDownload)
                     msg.type == "video" && c.file != null -> MediaVideo(msg, c.file, autoDownload)
                     msg.type == "file" && c.file != null -> FileAttachment(msg, c.file, onBubble, autoDownload)
                     msg.type == "voice" && c.file != null -> VoiceContent(msg, c.file, onBubble, if (mine) scheme.primary else scheme.tertiary)
-                    msg.type == "square" && c.file != null -> SquareContent(msg, c.file, autoDownload)
                     else -> Unit
                 }
 
@@ -548,7 +548,7 @@ fun openFile(context: android.content.Context, local: java.io.File, file: FileRe
 
 fun previewOf(type: String, text: String, file: FileRef?): String = when (type) {
     "image" -> "🖼 Фото" + if (text.isNotBlank()) " · $text" else ""
-    "video" -> "🎬 Видео" + if (text.isNotBlank()) " · $text" else ""
+    "video" -> if (file?.square == true) "🟪 Видеосообщение" else "🎬 Видео" + if (text.isNotBlank()) " · $text" else ""
     "file" -> "📎 " + (file?.name ?: "Файл")
     "voice" -> "🎤 Голосовое сообщение"
     "square" -> "🟪 Видеосообщение"

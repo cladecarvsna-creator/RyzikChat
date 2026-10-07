@@ -18,7 +18,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -82,6 +84,14 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
     val auth: StateFlow<AuthState> = _auth.asStateFlow()
 
     private var privateKey: ByteArray? = null
+
+    /** Все аккаунты на этом телефоне. */
+    val accounts: StateFlow<List<SavedAccount>> = prefs.accounts.stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    private val _addingAccount = MutableStateFlow(false)
+    /** Пользователь входит во второй аккаунт, а первый остаётся сохранённым. */
+    val addingAccount: StateFlow<Boolean> = _addingAccount.asStateFlow()
+    private var accountBeforeAdding: SavedAccount? = null
     val myId: String? get() = (auth.value as? AuthState.LoggedIn)?.me?.id
 
     private val _chats = MutableStateFlow<List<Chat>>(emptyList())
@@ -147,20 +157,32 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
         api.token = s.token
         privateKey = runCatching { KeyVault.unwrap(s.wrappedPrivateKey) }.getOrNull()
         if (privateKey == null) {
-            prefs.clearSession()
-            _auth.value = AuthState.LoggedOut
+            dropCurrentAndContinue()
             return
         }
         val me = runCatching { api.me() }.getOrElse { e ->
             if (e is ApiException && e.status == 401) {
-                prefs.clearSession()
-                _auth.value = AuthState.LoggedOut
+                dropCurrentAndContinue()
                 return
             }
             // Нет сети: пускаем в приложение с минимальными данными, всё догрузится позже.
             User(id = s.userId ?: "", username = s.username ?: "", displayName = s.username ?: "")
         }
         onLoggedIn(me)
+    }
+
+    /** Текущий аккаунт больше не работает: убираем его и открываем следующий, если он есть. */
+    private suspend fun dropCurrentAndContinue() {
+        val rest = prefs.clearSession()
+        val next = rest.firstOrNull()
+        if (next != null) {
+            prefs.activate(next)
+            restore()
+        } else {
+            api.token = null
+            privateKey = null
+            _auth.value = AuthState.LoggedOut
+        }
     }
 
     private fun deviceName() = "${Build.MANUFACTURER} ${Build.MODEL}".trim()
@@ -196,14 +218,18 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
     }
 
     private suspend fun finishAuth(res: AuthResponse, priv: ByteArray) {
+        if (_addingAccount.value) teardownLocal()
         api.token = res.token
         privateKey = priv
         prefs.saveSession(res.token, res.user.id, res.user.username, KeyVault.wrap(priv))
+        _addingAccount.value = false
+        accountBeforeAdding = null
         onLoggedIn(res.user)
     }
 
     private fun onLoggedIn(me: User) {
         rememberUsers(listOf(me))
+        scope.launch { prefs.updateAccountInfo(me.id, me.displayName, me.avatarFileId) }
         _auth.value = AuthState.LoggedIn(me)
         scope.launch { refreshChats() }
         connectSocket()
@@ -223,18 +249,58 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
         }
     }
 
-    private suspend fun resetLocal() {
+    /** Закрывает соединение и забывает данные текущего аккаунта в памяти (не на диске). */
+    private fun teardownLocal() {
         socketJob?.cancel()
         socket?.close(1000, null)
         socket = null
-        prefs.clearSession()
-        api.token = null
-        privateKey = null
+        _connected.value = false
         _chats.value = emptyList()
         messageFlows.clear()
+        hasMore.clear()
         decryptCache.clear()
         _users.value = emptyMap()
+        _typing.value = emptyMap()
+        _readStates.value = emptyMap()
+    }
+
+    private suspend fun resetLocal() {
+        teardownLocal()
+        api.token = null
+        privateKey = null
+        _auth.value = AuthState.Loading
+        dropCurrentAndContinue()
+    }
+
+    fun switchAccount(acc: SavedAccount) {
+        if (acc.userId == myId) return
+        scope.launch {
+            teardownLocal()
+            _auth.value = AuthState.Loading
+            prefs.activate(acc)
+            restore()
+        }
+    }
+
+    /** Вход во ещё один аккаунт. Текущий остаётся в списке. */
+    fun beginAddAccount() {
+        if (accounts.value.size >= MAX_ACCOUNTS) return
+        accountBeforeAdding = accounts.value.firstOrNull { it.userId == myId }
+        teardownLocal()
+        _addingAccount.value = true
         _auth.value = AuthState.LoggedOut
+    }
+
+    fun cancelAddAccount() {
+        if (!_addingAccount.value) return
+        _addingAccount.value = false
+        val prev = accountBeforeAdding ?: accounts.value.firstOrNull()
+        accountBeforeAdding = null
+        scope.launch {
+            _auth.value = AuthState.Loading
+            if (prev != null) prefs.activate(prev)
+            restore()
+        }
     }
 
     fun myFingerprint(): String = privateKey?.let { E2E.fingerprint(E2E.publicFromPrivate(it)) } ?: ""
@@ -255,7 +321,9 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
     suspend fun loadUser(id: String): User = api.user(id).also { rememberUsers(listOf(it)) }
 
     suspend fun updateProfile(displayName: String? = null, bio: String? = null, avatarFileId: String? = null) {
-        rememberUsers(listOf(api.updateMe(displayName, bio, avatarFileId)))
+        val me = api.updateMe(displayName, bio, avatarFileId)
+        rememberUsers(listOf(me))
+        prefs.updateAccountInfo(me.id, me.displayName, me.avatarFileId)
     }
 
     /** Аватарки не шифруются: их видят все, как и имя. */
@@ -276,7 +344,9 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
     suspend fun refreshChats() {
         _chatsLoading.value = true
         try {
+            val tok = api.token
             val list = api.chats()
+            if (api.token != tok) return // пока грузили, переключили аккаунт
             rememberUsers(list.flatMap { c -> c.members.map { it.user } })
             chatsMutex.withLock {
                 // Каналы, которые человек просто смотрит (не подписан), сервер в списке не отдаёт — сохраняем их.
@@ -430,7 +500,7 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
 
     fun previewText(type: String, c: Content): String = when (type) {
         "image" -> "🖼 Фото" + c.text.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
-        "video" -> "🎬 Видео" + c.text.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+        "video" -> if (c.file?.square == true) "🟪 Видеосообщение" else "🎬 Видео" + c.text.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
         "file" -> "📎 ${c.file?.name ?: "Файл"}"
         "voice" -> "🎤 Голосовое сообщение"
         "square" -> "🟪 Видеосообщение"
@@ -470,13 +540,27 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
         if (pendingId == null) merge(chatId, listOf(pending(chatId, clientId, type, content, replyTo, forwardedFrom)))
         scope.launch {
             try {
-                val sent = api.sendMessage(chatId, type, encryptFor(chatId, content), replyTo, forwardedFrom, clientId)
+                val sent = postMessage(chatId, type, content, replyTo, forwardedFrom, clientId)
                 decryptCache["${sent.id}:0"] = content
                 merge(chatId, listOf(decrypt(sent)))
                 bumpChat(sent)
             } catch (_: Exception) {
                 markFailed(chatId, clientId)
             }
+        }
+    }
+
+    /**
+     * Отправка на сервер. Старый сервер не знает тип «square» — тогда шлём квадратик
+     * как обычное видео с пометкой square, и приложение всё равно покажет его квадратиком.
+     */
+    private suspend fun postMessage(chatId: String, type: String, content: Content, replyTo: String?, forwardedFrom: String?, clientId: String): Message {
+        val c = if (type == "square" && content.file != null && !content.file.square) content.copy(file = content.file.copy(square = true)) else content
+        return try {
+            api.sendMessage(chatId, type, encryptFor(chatId, c), replyTo, forwardedFrom, clientId)
+        } catch (e: ApiException) {
+            if (type != "square" || e.code != "bad_type") throw e
+            api.sendMessage(chatId, "video", encryptFor(chatId, c), replyTo, forwardedFrom, clientId)
         }
     }
 
@@ -569,7 +653,7 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
         val ext = if (type == "voice") "m4a" else "mp4"
         val content = Content(file = FileRef(
             id = "", key = "", name = "$type-${System.currentTimeMillis()}.$ext", size = local.length(), mime = mime,
-            width = width, height = height, durationMs = durationMs, waveform = waveform,
+            width = width, height = height, durationMs = durationMs, waveform = waveform, square = type == "square",
         ))
         merge(chatId, listOf(pending(chatId, clientId, type, content, replyTo, null, local)))
         uploadAndSend(chatId, type, local, content, replyTo, clientId)
@@ -591,7 +675,7 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
                 local.copyTo(ready, overwrite = true)
                 media.getOrPut(up.id) { MutableStateFlow(MediaState.Idle) }.value = MediaState.Ready(ready)
                 val finalContent = content.copy(file = content.file!!.copy(id = up.id, key = key))
-                val sent = api.sendMessage(chatId, type, encryptFor(chatId, finalContent), replyTo, null, clientId)
+                val sent = postMessage(chatId, type, finalContent, replyTo, null, clientId)
                 decryptCache["${sent.id}:0"] = finalContent
                 merge(chatId, listOf(decrypt(sent).copy(localFile = ready)))
                 bumpChat(sent)

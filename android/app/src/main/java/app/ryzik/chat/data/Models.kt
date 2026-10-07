@@ -102,6 +102,8 @@ data class FileRef(
     val durationMs: Long = 0,
     /** Для голосовых: громкость по ходу записи, base64 от массива байт 0..100. */
     val waveform: String = "",
+    /** Квадратное видеосообщение («квадратик»). */
+    val square: Boolean = false,
 )
 
 @Serializable

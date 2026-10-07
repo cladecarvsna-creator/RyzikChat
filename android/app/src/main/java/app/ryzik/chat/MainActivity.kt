@@ -35,6 +35,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.compose.currentBackStackEntryAsState
 import app.ryzik.chat.call.CallPhase
 import app.ryzik.chat.data.AppSettings
 import app.ryzik.chat.ui.call.CallScreen
@@ -70,6 +71,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val settings by app.prefs.settings.collectAsState(initial = null)
             val auth by app.repo.auth.collectAsState()
+            val adding by app.repo.addingAccount.collectAsState()
             val s = settings ?: AppSettings()
             RyzikTheme(s) {
                 Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
@@ -82,7 +84,7 @@ class MainActivity : ComponentActivity() {
                             transitionSpec = { (fadeIn(tween(400)) + scaleIn(initialScale = 0.96f)) togetherWith (fadeOut(tween(200)) + scaleOut(targetScale = 1.04f)) },
                         ) { loggedIn ->
                             if (loggedIn) MainNav(pendingChat.value) { pendingChat.value = null }
-                            else OnboardingNav()
+                            else OnboardingNav(adding)
                         }
                         // Звонок открывается поверх любого экрана.
                         val call by app.calls.state.collectAsState()
@@ -112,18 +114,28 @@ private const val ANIM = 380
 private fun NavHostController.go(route: String) = navigate(route) { launchSingleTop = true }
 
 @Composable
-private fun OnboardingNav() {
+private fun OnboardingNav(adding: Boolean) {
     val nav = rememberNavController()
+    val repo = RyzikApp.instance.repo
+    // Добавление второго аккаунта: сразу экран входа, «назад» возвращает в текущий аккаунт.
+    androidx.activity.compose.BackHandler(enabled = adding && nav.currentBackStackEntryAsState().value?.destination?.route == "auth") {
+        repo.cancelAddAccount()
+    }
     NavHost(
         nav,
-        startDestination = "welcome",
+        startDestination = if (adding) "auth" else "welcome",
         enterTransition = { slideInHorizontally(tween(ANIM, easing = FastOutSlowInEasing)) { it / 3 } + fadeIn(tween(ANIM)) },
         exitTransition = { slideOutHorizontally(tween(ANIM, easing = FastOutSlowInEasing)) { -it / 3 } + fadeOut(tween(ANIM)) },
         popEnterTransition = { slideInHorizontally(tween(ANIM, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(ANIM)) },
         popExitTransition = { slideOutHorizontally(tween(ANIM, easing = FastOutSlowInEasing)) { it / 3 } + fadeOut(tween(ANIM)) },
     ) {
         composable("welcome") { WelcomeScreen(onLogin = { nav.go("auth") }) }
-        composable("auth") { AuthScreen(onBack = { nav.popBackStack() }, onOpenTerms = { nav.go("terms") }) }
+        composable("auth") {
+            AuthScreen(
+                onBack = { if (adding) repo.cancelAddAccount() else nav.popBackStack() },
+                onOpenTerms = { nav.go("terms") },
+            )
+        }
         composable("terms") { TermsScreen(onBack = { nav.popBackStack() }) }
     }
 }

@@ -324,7 +324,8 @@ class SquareRecorder(private val context: Context) {
                         is VideoRecordEvent.Start -> startedAt = System.currentTimeMillis()
                         is VideoRecordEvent.Finalize -> {
                             val duration = ev.recordingStats.recordedDurationNanos / 1_000_000
-                            val ok = !ev.hasError() || ev.error == VideoRecordEvent.Finalize.ERROR_DURATION_LIMIT_REACHED
+                            // Часть ошибок (например, камеру отпустили) всё равно оставляет годный файл.
+                            val ok = ev.error != VideoRecordEvent.Finalize.ERROR_NO_VALID_DATA && f.exists() && f.length() > 1024
                             if (send && ok && duration >= 800) onReady?.invoke(f, duration) else f.delete()
                             cleanup()
                         }

@@ -1,5 +1,6 @@
 package app.ryzik.chat.ui.settings
 
+import androidx.compose.material.icons.filled.PersonAdd
 import app.ryzik.chat.ui.theme.PREMIUM_SEEDS_FROM
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Star
@@ -128,6 +129,7 @@ fun SettingsScreen(
     val repo = RyzikApp.instance.repo
     val auth by repo.auth.collectAsState()
     val me = (auth as? AuthState.LoggedIn)?.me ?: return
+    val accounts by repo.accounts.collectAsState()
     val scope = rememberCoroutineScope()
     var editing by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
@@ -202,6 +204,32 @@ fun SettingsScreen(
                     }
                 }
             }
+            item(key = "accounts_header") {
+                Text("Аккаунты", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp))
+            }
+            items(accounts.size, key = { "acc_" + accounts[it].userId }) { i ->
+                val acc = accounts[i]
+                val current = acc.userId == me.id
+                ListItem(
+                    headlineContent = { Text(acc.displayName.ifBlank { acc.username }) },
+                    supportingContent = { Text("@${acc.username}" + if (current) " · сейчас" else "") },
+                    leadingContent = { Avatar(acc.displayName.ifBlank { acc.username }, repo.avatarUrl(acc.avatarFileId)?.takeIf { current }, 40.dp) },
+                    trailingContent = { if (current) Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary) },
+                    modifier = Modifier.animateItem().clickable(enabled = !current) { repo.switchAccount(acc) },
+                )
+            }
+            if (accounts.size < app.ryzik.chat.data.MAX_ACCOUNTS) item(key = "add_account") {
+                ListItem(
+                    headlineContent = { Text("Добавить аккаунт", color = MaterialTheme.colorScheme.primary) },
+                    supportingContent = { Text("До ${app.ryzik.chat.data.MAX_ACCOUNTS} аккаунтов, переключение в одно касание") },
+                    leadingContent = {
+                        Box(Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.PersonAdd, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
+                    },
+                    modifier = Modifier.clickable { repo.beginAddAccount() },
+                )
+            }
             item {
                 SettingsRow(Icons.Default.Bookmark, "Избранное", "Ваши сохранённые сообщения", onOpenSaved)
             }
@@ -259,7 +287,7 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { confirmLogout = false },
             title = { Text("Выйти из аккаунта?") },
-            text = { Text("Чтобы снова увидеть переписку, понадобится ваш пароль.") },
+            text = { Text(if (accounts.size > 1) "Аккаунт уберётся с телефона, откроется другой ваш аккаунт. Чтобы вернуться, понадобится пароль." else "Чтобы снова увидеть переписку, понадобится ваш пароль.") },
             confirmButton = { TextButton(onClick = { confirmLogout = false; repo.logout() }) { Text("Выйти") } },
             dismissButton = { TextButton(onClick = { confirmLogout = false }) { Text("Отмена") } },
         )
