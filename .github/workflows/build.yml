@@ -54,7 +54,7 @@ jobs:
         with:
           files: android/RyzikChat.apk
       - name: Свежая сборка ветки ryzikchat
-        if: github.ref == 'refs/heads/ryzikchat'
+        if: github.ref == 'refs/heads/ryzikchat' || github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ryzikchat-latest
