@@ -484,6 +484,7 @@ private fun ChatSettings(s: AppSettings, update: ((AppSettings) -> AppSettings) 
     SwitchRow("Отправка по Enter", "Новая строка — через Shift+Enter на физической клавиатуре", s.sendByEnter) { v -> update { it.copy(sendByEnter = v) } }
     SwitchRow("Свайп для ответа", "Потяните сообщение влево, чтобы ответить", s.swipeToReply) { v -> update { it.copy(swipeToReply = v) } }
     SwitchRow("Крупные эмодзи", "Сообщения из 1–3 эмодзи показываются большими", s.bigEmoji) { v -> update { it.copy(bigEmoji = v) } }
+    SwitchRow("Эмодзи в стиле iOS", "Объёмные эмодзи вместо системных. Выключение применится после перезапуска приложения", s.iosEmoji) { v -> update { it.copy(iosEmoji = v) } }
     Header("Быстрая реакция (двойное касание)")
     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         itemsIndexed(QuickReactions) { _, e ->

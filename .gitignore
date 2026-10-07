@@ -8,3 +8,4 @@ captures/
 node_modules/
 server/data/
 .env
+android/app/src/main/assets/emoji/

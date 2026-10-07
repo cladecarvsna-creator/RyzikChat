@@ -40,6 +40,8 @@ data class AppSettings(
     val showTyping: Boolean = true,
     val compactList: Boolean = false,
     val bigEmoji: Boolean = true,
+    /** Объёмные эмодзи в стиле iOS вместо системных. */
+    val iosEmoji: Boolean = true,
     val quickReaction: String = "❤️",
     /** Держать соединение в фоне, чтобы уведомления приходили при закрытом приложении. */
     val backgroundConnection: Boolean = true,
@@ -95,6 +97,7 @@ class Prefs(private val context: Context) {
         val typing = booleanPreferencesKey("typing")
         val compact = booleanPreferencesKey("compact_list")
         val bigEmoji = booleanPreferencesKey("big_emoji")
+        val iosEmoji = booleanPreferencesKey("ios_emoji")
         val quickReaction = stringPreferencesKey("quick_reaction")
         val background = booleanPreferencesKey("background_connection")
         val callNotif = booleanPreferencesKey("call_notifications")
@@ -135,6 +138,7 @@ class Prefs(private val context: Context) {
             showTyping = p[K.typing] ?: d.showTyping,
             compactList = p[K.compact] ?: d.compactList,
             bigEmoji = p[K.bigEmoji] ?: d.bigEmoji,
+            iosEmoji = p[K.iosEmoji] ?: d.iosEmoji,
             quickReaction = p[K.quickReaction] ?: d.quickReaction,
             backgroundConnection = p[K.background] ?: d.backgroundConnection,
             callNotifications = p[K.callNotif] ?: d.callNotifications,
@@ -167,6 +171,7 @@ class Prefs(private val context: Context) {
             p[K.typing] = s.showTyping
             p[K.compact] = s.compactList
             p[K.bigEmoji] = s.bigEmoji
+            p[K.iosEmoji] = s.iosEmoji
             p[K.quickReaction] = s.quickReaction
             p[K.background] = s.backgroundConnection
             p[K.callNotif] = s.callNotifications

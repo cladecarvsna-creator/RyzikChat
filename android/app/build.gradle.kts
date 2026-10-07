@@ -13,8 +13,8 @@ android {
         applicationId = "app.ryzik.chat"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.3.1"
+        versionCode = 6
+        versionName = "0.3.2"
         // Адрес сервера по умолчанию: 10.0.2.2 — это компьютер, на котором запущен эмулятор.
         buildConfigField("String", "DEFAULT_SERVER", "\"http://10.0.2.2:8080\"")
     }
@@ -77,6 +77,8 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.4.1")
     implementation("androidx.camera:camera-video:1.4.1")
     implementation("androidx.camera:camera-view:1.4.1")
+    // Эмодзи в стиле iOS: свой шрифт через EmojiCompat
+    implementation("androidx.emoji2:emoji2:1.4.0")
     debugImplementation(libs.compose.ui.tooling)
     testImplementation("junit:junit:4.13.2")
 }

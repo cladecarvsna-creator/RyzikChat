@@ -11,12 +11,15 @@ import app.ryzik.chat.data.Prefs
 import app.ryzik.chat.notify.AccountWatcher
 import app.ryzik.chat.notify.ConnectionService
 import app.ryzik.chat.notify.Notifier
+import app.ryzik.chat.ui.emoji.IosEmoji
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 
@@ -42,6 +45,11 @@ class RyzikApp : Application() {
         repo = ChatRepository(this, prefs)
         calls = CallManager(this, repo)
         Notifier.createChannels(this)
+
+        // Эмодзи в стиле iOS (выключение вступает в силу после перезапуска).
+        scope.launch {
+            prefs.settings.map { it.iosEmoji }.distinctUntilChanged().filter { it }.collect { IosEmoji.install(this@RyzikApp) }
+        }
 
         // Фоновая служба: пока вы вошли и она включена, сообщения и звонки приходят при закрытом приложении.
         scope.launch {

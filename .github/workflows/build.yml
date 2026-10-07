@@ -38,7 +38,27 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
-      - name: Тесты шифрования
+      - name: Кэш шрифта эмодзи
+        id: emoji-cache
+        uses: actions/cache@v4
+        with:
+          path: android/app/src/main/assets/emoji/ryzik_emoji.ttf
+          key: emoji-font-${{ hashFiles('tools/emoji/**') }}
+      - uses: actions/setup-python@v5
+        if: steps.emoji-cache.outputs.cache-hit != 'true'
+        with:
+          python-version: "3.12"
+      - name: Шрифт эмодзи в стиле iOS (Fluent Emoji 3D)
+        if: steps.emoji-cache.outputs.cache-hit != 'true'
+        working-directory: .
+        run: |
+          sudo apt-get install -y -q pngquant
+          pip install -q fonttools pillow flatbuffers
+          git clone -q --depth 1 --filter=blob:none --no-checkout https://github.com/microsoft/fluentui-emoji /tmp/fluent
+          git -C /tmp/fluent sparse-checkout set --no-cone '/assets/*/metadata.json' '/assets/*/3D/*.png' '/assets/*/*/3D/*.png'
+          git -C /tmp/fluent checkout -q
+          python3 tools/emoji/build_font.py /tmp/fluent/assets android/app/src/main/assets/emoji/ryzik_emoji.ttf
+      - name: Тесты
         run: ./gradlew testDebugUnitTest --stacktrace
       - name: Сборка APK
         run: ./gradlew assembleRelease --stacktrace
