@@ -1,5 +1,6 @@
 package app.ryzik.chat.ui.chat
 
+import app.ryzik.chat.notify.Notifier
 import kotlinx.coroutines.delay
 import app.ryzik.chat.ui.components.formatDuration
 import app.ryzik.chat.ui.chats.subscribersText
@@ -253,7 +254,7 @@ fun ChatScreen(
     }
 
     DisposableEffect(chatId) {
-        app.ryzik.chat.notify.Notifier.clearChat(context, chatId)
+        Notifier.clearChat(context, chatId)
         repo.openChatId = chatId
         onDispose { if (repo.openChatId == chatId) repo.openChatId = null }
     }
