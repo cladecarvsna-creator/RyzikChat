@@ -65,6 +65,8 @@ data class CallState(
     val cameraOn: Boolean = false,
     val startedAt: Long = 0,
     val endReason: String = "",
+    /** Собеседник не в сети: звонок ждёт, пока он подключится. */
+    val peerOffline: Boolean = false,
 )
 
 /**
@@ -95,6 +97,9 @@ class CallManager(private val context: Context, private val repo: ChatRepository
     private val pendingIce = mutableListOf<IceCandidate>()
     private var remoteSet = false
     private var timeoutJob: Job? = null
+
+    /** «Ответить» нажали в уведомлении другого аккаунта: звонок придёт после переключения, принимаем его сразу. */
+    @Volatile var autoAcceptUntil: Long = 0L
     private var ringtone: Ringtone? = null
     private val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
@@ -130,7 +135,7 @@ class CallManager(private val context: Context, private val repo: ChatRepository
                     put("video", video)
                 })
                 timeoutJob = scope.launch {
-                    delay(45_000)
+                    delay(60_000)
                     if (_state.value.phase == CallPhase.Outgoing) {
                         send(buildJsonObject { put("kind", "hangup"); put("callId", callId) })
                         finish("Нет ответа")
@@ -220,6 +225,11 @@ class CallManager(private val context: Context, private val repo: ChatRepository
             val name = repo.users.value[from]?.displayName
                 ?: runCatching { repo.loadUser(from).displayName }.getOrNull()
                 ?: "Входящий звонок"
+            if (System.currentTimeMillis() < autoAcceptUntil) {
+                autoAcceptUntil = 0L
+                accept()
+                return
+            }
             if (RyzikApp.instance.prefs.settings.first().callNotifications) Notifier.showIncomingCall(context, name, video)
             timeoutJob = scope.launch {
                 delay(50_000)
@@ -248,6 +258,7 @@ class CallManager(private val context: Context, private val repo: ChatRepository
             "decline" -> finish("Собеседник отклонил звонок")
             "busy" -> finish("Собеседник занят")
             "unavailable" -> finish("Собеседник не в сети")
+            "waiting" -> _state.update { it.copy(peerOffline = true) }
         }
     }
 

@@ -10,6 +10,40 @@ export class Hub {
   constructor() {
     this.sockets = new Map(); // userId -> Set<WebSocket>
     this.locals = null;
+    // Звонки, которые ещё не приняли: calleeId -> { callId, from, signals[], at }.
+    // Если собеседник не в сети или только что переключил аккаунт, он получит
+    // offer и ICE-кандидаты, как только подключится (в течение CALL_RING_MS).
+    this.pendingCalls = new Map();
+  }
+
+  static CALL_RING_MS = 60_000;
+
+  /** Запоминает сигнал звонка, чтобы доставить его позже, и чистит законченные звонки. */
+  trackCallSignal(from, to, data) {
+    const kind = data.kind;
+    const callId = data.callId;
+    const toCallee = this.pendingCalls.get(to);
+    const fromCallee = this.pendingCalls.get(from);
+    if (kind === 'offer') {
+      this.pendingCalls.set(to, { callId, from, signals: [data], at: Date.now() });
+    } else if (toCallee && toCallee.callId === callId && toCallee.from === from) {
+      if (kind === 'hangup') this.pendingCalls.delete(to);
+      else if (toCallee.signals.length < 200) toCallee.signals.push(data);
+    } else if (fromCallee && fromCallee.callId === callId && fromCallee.from === to) {
+      // Собеседник ответил, отклонил или занят — звонок больше не ждёт.
+      this.pendingCalls.delete(from);
+    }
+  }
+
+  /** Новое подключение: отдаём звонок, который ещё звонит. */
+  replayPendingCall(userId, ws) {
+    const p = this.pendingCalls.get(userId);
+    if (!p) return;
+    if (Date.now() - p.at > Hub.CALL_RING_MS) {
+      this.pendingCalls.delete(userId);
+      return;
+    }
+    for (const data of p.signals) ws.send(JSON.stringify({ type: 'call.signal', from: p.from, data }));
   }
 
   isOnline(userId) {
@@ -48,6 +82,7 @@ export class Hub {
       ws.isAlive = true;
       locals.touchLastSeen(userId);
       if (!wasOnline) this.broadcastUser(userId, { type: 'presence', userId, online: true, lastSeen: Date.now() });
+      this.replayPendingCall(userId, ws);
 
       ws.on('pong', () => { ws.isAlive = true; });
       ws.on('message', (raw) => {
@@ -60,9 +95,11 @@ export class Hub {
           // Сигналы WebRTC (offer/answer/ice/hangup…) пересылаем, только если у людей есть общий чат.
           if (msg.to !== userId && locals.sharedChatPeers(userId).includes(msg.to)) {
             const delivered = this.isOnline(msg.to);
+            this.trackCallSignal(userId, msg.to, msg.data);
             this.sendToUsers([msg.to], { type: 'call.signal', from: userId, data: msg.data });
             if (!delivered && msg.data.kind === 'offer') {
-              ws.send(JSON.stringify({ type: 'call.signal', from: msg.to, data: { kind: 'unavailable', callId: msg.data.callId } }));
+              // Не сбрасываем звонок: он дойдёт, когда собеседник появится в сети.
+              ws.send(JSON.stringify({ type: 'call.signal', from: msg.to, data: { kind: 'waiting', callId: msg.data.callId } }));
             }
           }
         } else if (msg.type === 'ping') {

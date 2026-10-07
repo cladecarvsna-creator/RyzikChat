@@ -8,6 +8,7 @@ import app.ryzik.chat.data.AuthState
 import app.ryzik.chat.data.ChatRepository
 import app.ryzik.chat.data.Notice
 import app.ryzik.chat.data.Prefs
+import app.ryzik.chat.notify.AccountWatcher
 import app.ryzik.chat.notify.ConnectionService
 import app.ryzik.chat.notify.Notifier
 import kotlinx.coroutines.CoroutineScope
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 
 class RyzikApp : Application() {
     lateinit var prefs: Prefs
@@ -25,6 +27,9 @@ class RyzikApp : Application() {
         private set
     lateinit var calls: CallManager
         private set
+
+    /** Соединения неактивных аккаунтов: по id пользователя. */
+    val watchers = ConcurrentHashMap<String, AccountWatcher>()
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -43,6 +48,26 @@ class RyzikApp : Application() {
             combine(repo.auth, prefs.settings) { a, s -> a is AuthState.LoggedIn && s.backgroundConnection }
                 .distinctUntilChanged()
                 .collect { on -> if (on) ConnectionService.start(this@RyzikApp) else ConnectionService.stop(this@RyzikApp) }
+        }
+
+        // Уведомления с остальных аккаунтов
+        scope.launch {
+            combine(prefs.accounts, repo.auth, prefs.settings) { list, a, s ->
+                val active = (a as? AuthState.LoggedIn)?.me?.id
+                if (active == null || !s.allAccountsNotifications) emptyList()
+                else list.filter { it.userId != active && it.token.isNotEmpty() }
+            }.distinctUntilChanged().collect { wanted ->
+                val ids = wanted.associateBy { it.userId }
+                for ((id, w) in watchers.entries.toList()) {
+                    val acc = ids[id]
+                    if (acc == null || acc.token != w.account.token || acc.serverUrl != w.account.serverUrl) {
+                        watchers.remove(id)?.stop()
+                    }
+                }
+                for (acc in wanted) if (!watchers.containsKey(acc.userId)) {
+                    watchers[acc.userId] = AccountWatcher(this@RyzikApp, acc).also { it.start() }
+                }
+            }
         }
 
         // Новые сообщения

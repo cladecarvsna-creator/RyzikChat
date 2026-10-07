@@ -135,7 +135,35 @@ test('каналы, премиум, сигналы звонков, докуме�
   const sig = got.find((e) => e.type === 'call.signal');
   assert.equal(sig.from, owner.body.user.id);
   assert.equal(sig.data.kind, 'offer');
-  a.close(); b.close();
+  // Собеседник принял — звонок больше не висит в очереди
+  b.send(JSON.stringify({ type: 'call.signal', to: owner.body.user.id, data: { kind: 'answer', callId: 'c1', sdp: 'v=0' } }));
+  b.close();
+  await new Promise((r) => setTimeout(r, 150));
+
+  // Собеседник не в сети: звонящий получает «waiting», а offer и ICE приходят, когда тот подключится
+  const fromA = [];
+  a.on('message', (d) => fromA.push(JSON.parse(String(d))));
+  a.send(JSON.stringify({ type: 'call.signal', to: fan.body.user.id, data: { kind: 'offer', callId: 'c2', sdp: 'v=0' } }));
+  a.send(JSON.stringify({ type: 'call.signal', to: fan.body.user.id, data: { kind: 'ice', callId: 'c2', candidate: 'x' } }));
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(fromA.find((e) => e.type === 'call.signal')?.data.kind, 'waiting');
+  const late = [];
+  const b2 = new WebSocket(wsUrl(fan.body.token));
+  b2.on('message', (d) => late.push(JSON.parse(String(d))));
+  await new Promise((r) => b2.on('open', r));
+  await new Promise((r) => setTimeout(r, 150));
+  const replay = late.filter((e) => e.type === 'call.signal').map((e) => e.data.kind);
+  assert.deepEqual(replay, ['offer', 'ice']);
+  a.send(JSON.stringify({ type: 'call.signal', to: fan.body.user.id, data: { kind: 'hangup', callId: 'c2' } }));
+  await new Promise((r) => setTimeout(r, 100));
+  b2.close();
+  const b3 = new WebSocket(wsUrl(fan.body.token));
+  const after = [];
+  b3.on('message', (d) => after.push(JSON.parse(String(d))));
+  await new Promise((r) => b3.on('open', r));
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(after.filter((e) => e.type === 'call.signal').length, 0);
+  a.close(); b3.close();
 
   const cfg = await api('GET', '/api/calls/config', null, fan.body.token);
   assert.ok(cfg.body.iceServers.length >= 1);

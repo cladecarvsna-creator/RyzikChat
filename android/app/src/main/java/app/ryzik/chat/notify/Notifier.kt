@@ -39,9 +39,12 @@ object Notifier {
 
     const val KEY_REPLY = "reply_text"
     const val EXTRA_CHAT_ID = "chat_id"
+    const val EXTRA_ACCOUNT_ID = "account_id"
 
     private class Line(val sender: String, val senderId: String, val text: String, val time: Long)
     private val history = ConcurrentHashMap<String, MutableList<Line>>()
+    /** chatId -> аккаунт, если уведомление пришло не для текущего аккаунта. */
+    private val chatAccount = ConcurrentHashMap<String, Pair<String, String>>()
 
     fun createChannels(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -71,12 +74,13 @@ object Notifier {
         runCatching { NotificationManagerCompat.from(context).notify(id, n) }
     }
 
-    fun openChatIntent(context: Context, chatId: String?): PendingIntent {
+    fun openChatIntent(context: Context, chatId: String?, accountId: String? = null): PendingIntent {
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             if (chatId != null) putExtra(MainActivity.EXTRA_CHAT_ID, chatId)
+            if (accountId != null) putExtra(EXTRA_ACCOUNT_ID, accountId)
         }
-        return PendingIntent.getActivity(context, (chatId ?: "app").hashCode(), intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        return PendingIntent.getActivity(context, ((chatId ?: "app") + accountId.orEmpty()).hashCode(), intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
 
     private fun actionIntent(context: Context, action: String, chatId: String, mutable: Boolean = false): PendingIntent {
@@ -123,13 +127,16 @@ object Notifier {
         time: Long,
         vibrate: Boolean,
         canReply: Boolean,
+        /** Если сообщение для другого вашего аккаунта: его id и @ник. */
+        account: Pair<String, String>? = null,
     ) {
+        if (account != null) chatAccount[chatId] = account else chatAccount.remove(chatId)
         val lines = history.getOrPut(chatId) { mutableListOf() }
         synchronized(lines) {
             lines += Line(senderName, senderId, text, time)
             while (lines.size > 8) lines.removeAt(0)
         }
-        render(context, chatId, chatTitle, isGroup, vibrate, canReply, silent = false)
+        render(context, chatId, chatTitle, isGroup, vibrate, canReply && account == null, silent = false)
     }
 
     /** Ответ из шторки: добавляем свою строку и обновляем уведомление без звука. */
@@ -141,6 +148,7 @@ object Notifier {
 
     private fun render(context: Context, chatId: String, chatTitle: String, isGroup: Boolean, vibrate: Boolean, canReply: Boolean, silent: Boolean) {
         val lines = history[chatId]?.let { synchronized(it) { it.toList() } } ?: return
+        val account = chatAccount[chatId]
         val me = Person.Builder().setName("Вы").setKey("me").build()
         val style = NotificationCompat.MessagingStyle(me)
         if (isGroup) {
@@ -156,7 +164,7 @@ object Notifier {
             .setSmallIcon(R.drawable.ic_notification)
             .setStyle(style)
             .setLargeIcon(initialsBitmap(chatTitle))
-            .setContentIntent(openChatIntent(context, chatId))
+            .setContentIntent(openChatIntent(context, chatId, account?.first))
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -165,6 +173,7 @@ object Notifier {
             .setGroup("ryzik_messages")
             .setNumber(lines.count { it.senderId.isNotEmpty() })
         if (!vibrate) b.setVibrate(longArrayOf(0))
+        if (account != null) b.setSubText("для @${account.second}")
         if (canReply) {
             val input = RemoteInput.Builder(KEY_REPLY).setLabel("Ответить…").build()
             b.addAction(
@@ -175,7 +184,7 @@ object Notifier {
                     .build()
             )
         }
-        b.addAction(
+        if (account == null) b.addAction(
             NotificationCompat.Action.Builder(R.drawable.ic_notification, "Прочитано", actionIntent(context, NotificationActionReceiver.ACTION_READ, chatId))
                 .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_MARK_AS_READ)
                 .setShowsUserInterface(false)
@@ -187,48 +196,55 @@ object Notifier {
     /** Чат открыли или прочитали — убираем его уведомление. */
     fun clearChat(context: Context, chatId: String) {
         history.remove(chatId)
+        chatAccount.remove(chatId)
         NotificationManagerCompat.from(context).cancel(chatId.hashCode())
     }
 
     // ================= События =================
 
-    fun showEvent(context: Context, key: String, title: String, text: String, chatId: String?, iconName: String? = null) {
+    fun showEvent(context: Context, key: String, title: String, text: String, chatId: String?, iconName: String? = null, account: Pair<String, String>? = null) {
         val b = NotificationCompat.Builder(context, CH_EVENTS)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setContentIntent(openChatIntent(context, chatId))
+            .setContentIntent(openChatIntent(context, chatId, account?.first))
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_SOCIAL)
+        if (account != null) b.setSubText("для @${account.second}")
         if (iconName != null) b.setLargeIcon(initialsBitmap(iconName))
         post(context, MISSED_BASE + (key.hashCode() and 0xFFFF), b.build())
     }
 
-    fun missedCall(context: Context, peerId: String, name: String, video: Boolean, chatId: String?) {
-        showEvent(context, "missed_$peerId", if (video) "Пропущенный видеозвонок" else "Пропущенный звонок", name, chatId, iconName = name)
+    fun missedCall(context: Context, peerId: String, name: String, video: Boolean, chatId: String?, account: Pair<String, String>? = null) {
+        showEvent(context, "missed_$peerId", if (video) "Пропущенный видеозвонок" else "Пропущенный звонок", name, chatId, iconName = name, account = account)
     }
 
     // ================= Звонки =================
 
-    fun showIncomingCall(context: Context, name: String, video: Boolean) {
-        val open = Intent(context, MainActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP }
+    fun showIncomingCall(context: Context, name: String, video: Boolean, account: Pair<String, String>? = null) {
+        val open = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            if (account != null) putExtra(EXTRA_ACCOUNT_ID, account.first)
+        }
         val openPi = PendingIntent.getActivity(context, CALL_ID, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val accept = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra(MainActivity.EXTRA_CALL_ACTION, "accept")
+            if (account != null) putExtra(EXTRA_ACCOUNT_ID, account.first)
         }
         val acceptPi = PendingIntent.getActivity(context, CALL_ID + 1, accept, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val declinePi = PendingIntent.getBroadcast(
             context, CALL_ID + 2,
-            Intent(context, NotificationActionReceiver::class.java).setAction(NotificationActionReceiver.ACTION_DECLINE_CALL),
+            Intent(context, NotificationActionReceiver::class.java).setAction(NotificationActionReceiver.ACTION_DECLINE_CALL)
+                .apply { if (account != null) putExtra(EXTRA_ACCOUNT_ID, account.first) },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val caller = Person.Builder().setName(name).setIcon(initialsIcon(name)).setImportant(true).build()
         val b = NotificationCompat.Builder(context, CH_CALLS)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(name)
-            .setContentText(if (video) "Входящий видеозвонок" else "Входящий звонок")
+            .setContentText((if (video) "Входящий видеозвонок" else "Входящий звонок") + (account?.let { " · для @${it.second}" } ?: ""))
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setContentIntent(openPi)

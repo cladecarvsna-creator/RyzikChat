@@ -45,6 +45,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import app.ryzik.chat.data.AuthState
+import app.ryzik.chat.notify.Notifier
 import app.ryzik.chat.ui.admin.AdminScreen
 import app.ryzik.chat.ui.auth.AuthScreen
 import app.ryzik.chat.ui.auth.TermsScreen
@@ -67,6 +68,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         pendingChat.value = intent?.getStringExtra(EXTRA_CHAT_ID)
+        handleAccount(intent)
         handleCallAction(intent)
         val app = application as RyzikApp
         setContent {
@@ -103,7 +105,24 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         intent.getStringExtra(EXTRA_CHAT_ID)?.let { pendingChat.value = it }
+        handleAccount(intent)
         handleCallAction(intent)
+    }
+
+    /** Уведомление пришло для другого вашего аккаунта: переключаемся на него. */
+    private fun handleAccount(intent: Intent?) {
+        val id = intent?.getStringExtra(Notifier.EXTRA_ACCOUNT_ID) ?: return
+        intent.removeExtra(Notifier.EXTRA_ACCOUNT_ID)
+        val app = application as RyzikApp
+        if (app.repo.myId == id) return
+        val acc = app.repo.accounts.value.firstOrNull { it.userId == id } ?: return
+        if (intent.getStringExtra(EXTRA_CALL_ACTION) == "accept") {
+            intent.removeExtra(EXTRA_CALL_ACTION)
+            val mic = androidx.core.content.ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (mic) app.calls.autoAcceptUntil = System.currentTimeMillis() + 30_000
+        }
+        Notifier.cancelCall(this)
+        app.repo.switchAccount(acc)
     }
 
     /** «Ответить» в уведомлении о звонке. Без доступа к микрофону просто открываем экран звонка. */

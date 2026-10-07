@@ -18,7 +18,8 @@ class NotificationActionReceiver : BroadcastReceiver() {
         val app = context.applicationContext as RyzikApp
         when (intent.action) {
             ACTION_DECLINE_CALL -> {
-                app.calls.decline()
+                val account = intent.getStringExtra(Notifier.EXTRA_ACCOUNT_ID)
+                if (account != null) app.watchers[account]?.declineCall() else app.calls.decline()
                 Notifier.cancelCall(context)
             }
             ACTION_READ, ACTION_REPLY -> {

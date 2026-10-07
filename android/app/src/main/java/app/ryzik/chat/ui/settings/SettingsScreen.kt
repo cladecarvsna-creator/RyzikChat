@@ -509,6 +509,7 @@ private fun NotificationSettings(s: AppSettings, update: ((AppSettings) -> AppSe
     SwitchRow("Звонки", "Входящие и пропущенные звонки", s.callNotifications) { v -> update { it.copy(callNotifications = v) } }
     SwitchRow("Реакции", "Когда кто-то реагирует на ваше сообщение", s.reactionNotifications, enabled = s.notifications) { v -> update { it.copy(reactionNotifications = v) } }
     SwitchRow("Внутри приложения", "Показывать уведомления из других чатов, пока приложение открыто", s.inAppNotifications, enabled = s.notifications) { v -> update { it.copy(inAppNotifications = v) } }
+    SwitchRow("Со всех аккаунтов", "Сообщения и звонки приходят на все добавленные аккаунты, а не только на открытый", s.allAccountsNotifications) { v -> update { it.copy(allAccountsNotifications = v) } }
 
     Header("Работа в фоне")
     SwitchRow(

@@ -127,7 +127,7 @@ fun CallScreen() {
             Spacer(Modifier.height(8.dp))
             AnimatedContent(
                 targetState = when (state.phase) {
-                    CallPhase.Outgoing -> "Звоним…"
+                    CallPhase.Outgoing -> if (state.peerOffline) "Не в сети · звоним, пока не появится…" else "Звоним…"
                     CallPhase.Incoming -> if (state.video) "Входящий видеозвонок" else "Входящий звонок"
                     CallPhase.Connecting -> "Соединение…"
                     CallPhase.Active -> formatDuration(now - state.startedAt)
