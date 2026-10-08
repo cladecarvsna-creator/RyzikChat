@@ -74,6 +74,8 @@ jobs:
           code = int(re.search(r'versionCode\s*=\s*(\d+)', g).group(1))
           name = re.search(r'versionName\s*=\s*"([^"]+)"', g).group(1)
           notes = (os.environ.get('NOTES') or '').strip()
+          # Служебные строки коммита пользователю не показываем.
+          notes = '\n'.join(l for l in notes.splitlines() if not re.match(r'(Co-Authored-By|Claude-Session|Signed-off-by):', l)).strip()
           json.dump({
               'versionCode': code, 'versionName': name, 'notes': notes[:2000],
               'apk': 'https://github.com/cladecarvsna-creator/RyzikChat/releases/download/ryzikchat-latest/RyzikChat.apk',
