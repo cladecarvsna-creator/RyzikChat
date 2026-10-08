@@ -60,6 +60,8 @@ import app.ryzik.chat.ui.components.parseColor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+private val AdminTabs = listOf("Бейджи", "Пользователи", "Группы и каналы", "Журнал")
+
 private val BadgeColors = listOf("#FF8A3D", "#6750A4", "#00A3A3", "#2E6BE6", "#43A047", "#E91E63", "#FFB300", "#8D6E63")
 private val BadgeEmoji = listOf("⭐", "💎", "🔥", "🏆", "🛠️", "🎨", "🧪", "❤️", "🚀", "👑", "🦊", "🎮")
 
@@ -75,6 +77,7 @@ fun AdminScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit) {
     var found by remember { mutableStateOf<List<User>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
     var toDelete by remember { mutableStateOf<Badge?>(null) }
+    var tab by remember { mutableStateOf(0) }
 
     suspend fun reload() { badges = runCatching { repo.badges() }.getOrElse { error = it.userMessage(); badges } }
     LaunchedEffect(Unit) { reload() }
@@ -86,15 +89,40 @@ fun AdminScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Админ-панель") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") } },
-            )
+            Column {
+                TopAppBar(
+                    title = { Text("Админ-панель") },
+                    navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") } },
+                )
+                androidx.compose.foundation.lazy.LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(bottom = 8.dp),
+                ) {
+                    items(AdminTabs.size) { i ->
+                        val sel = tab == i
+                        Text(
+                            AdminTabs[i],
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (sel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.clip(CircleShape)
+                                .background(if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh)
+                                .clickable { tab = i }
+                                .padding(horizontal = 16.dp, vertical = 9.dp),
+                        )
+                    }
+                }
+            }
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(onClick = { creating = true }, icon = { Icon(Icons.Rounded.Add, null) }, text = { Text("Новый бейдж") })
+            if (tab == 0) ExtendedFloatingActionButton(onClick = { creating = true }, icon = { Icon(Icons.Rounded.Add, null) }, text = { Text("Новый бейдж") })
         },
     ) { padding ->
+        when (tab) {
+            1 -> { UsersModeration(Modifier.padding(padding), onOpenProfile); return@Scaffold }
+            2 -> { ChatsModeration(Modifier.padding(padding)); return@Scaffold }
+            3 -> { ModerationLog(Modifier.padding(padding)); return@Scaffold }
+        }
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(bottom = 96.dp)) {
             item {
                 Text(

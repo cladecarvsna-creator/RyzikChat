@@ -362,3 +362,51 @@ test('обновления приложения раздаёт сам серве
   assert.equal(info.apk, '/api/app/apk');
   assert.equal(await (await fetch(base + info.apk)).text(), 'apk-bytes');
 });
+
+test('модерация: бан, ограничение, блокировка и удаление групп', async () => {
+  const admin = (await api('POST', '/api/auth/login', { username: 'alice', password: 'x'.repeat(64) })).body.token;
+  const bad = (await reg('troll')).body;
+  const friend = (await reg('trollfriend')).body;
+  // Не админ не может модерировать.
+  assert.equal((await api('POST', `/api/admin/users/${friend.user.id}/ban`, {}, bad.token)).status, 403);
+
+  // Ограничение: читать можно, писать нельзя.
+  const dm = (await api('POST', '/api/chats/direct', { userId: friend.user.id }, bad.token)).body;
+  const r1 = await api('POST', `/api/admin/users/${bad.user.id}/restrict`, { reason: 'спам', days: 1 }, admin);
+  assert.ok(r1.body.restrictedUntil > Date.now());
+  assert.equal((await api('GET', '/api/me', null, bad.token)).body.restrictReason, 'спам');
+  const send = await api('POST', `/api/chats/${dm.id}/messages`, { type: 'text', payload: 'x' }, bad.token);
+  assert.equal(send.status, 403);
+  assert.equal(send.body.error, 'restricted');
+  assert.equal((await api('POST', '/api/chats/group', { title: 'g' }, bad.token)).body.error, 'restricted');
+  assert.equal((await api('GET', '/api/chats', null, bad.token)).status, 200);
+  await api('DELETE', `/api/admin/users/${bad.user.id}/restrict`, null, admin);
+  assert.equal((await api('POST', `/api/chats/${dm.id}/messages`, { type: 'text', payload: 'x' }, bad.token)).status, 201);
+
+  // Бан: сеансы закрыты, войти нельзя, админа банить нельзя.
+  assert.equal((await api('POST', `/api/admin/users/${(await api('GET', '/api/me', null, admin)).body.id}/ban`, {}, admin)).status, 400);
+  const ban = await api('POST', `/api/admin/users/${bad.user.id}/ban`, { reason: 'оскорбления' }, admin);
+  assert.ok(ban.body.isBanned);
+  assert.equal((await api('GET', '/api/me', null, bad.token)).status, 401);
+  const login = await api('POST', '/api/auth/login', { username: 'troll', password: 'x'.repeat(64) });
+  assert.equal(login.body.error, 'banned');
+  assert.match(login.body.message, /оскорбления/);
+  assert.deepEqual((await api('GET', '/api/admin/users', null, admin)).body.map((u) => u.username), ['troll']);
+  await api('DELETE', `/api/admin/users/${bad.user.id}/ban`, null, admin);
+  assert.ok((await api('POST', '/api/auth/login', { username: 'troll', password: 'x'.repeat(64) })).body.token);
+
+  // Блокировка канала: не ищется, не вступить, не написать. Потом удаление.
+  const ch = (await api('POST', '/api/chats/channel', { title: 'Плохой канал', isPublic: true }, friend.token)).body;
+  const b = await api('POST', `/api/admin/chats/${ch.id}/ban`, { reason: 'нарушения' }, admin);
+  assert.equal(b.body.banned, true);
+  assert.equal((await api('GET', '/api/channels/search?q=Плохой', null, admin)).body.length, 0);
+  assert.equal((await api('POST', `/api/chats/${ch.id}/subscribe`, null, admin)).body.error, 'chat_banned');
+  assert.equal((await api('POST', `/api/chats/${ch.id}/messages`, { type: 'text', payload: 'x' }, friend.token)).body.error, 'chat_banned');
+  assert.equal((await api('GET', `/api/chats/${ch.id}`, null, friend.token)).body.banReason, 'нарушения');
+  await api('DELETE', `/api/admin/chats/${ch.id}/ban`, null, admin);
+  assert.equal((await api('POST', `/api/chats/${ch.id}/messages`, { type: 'text', payload: 'x' }, friend.token)).status, 201);
+  assert.equal((await api('DELETE', `/api/admin/chats/${ch.id}`, null, admin)).status, 200);
+  assert.equal((await api('GET', `/api/chats/${ch.id}`, null, friend.token)).status, 404);
+  const log = (await api('GET', '/api/admin/log', null, admin)).body;
+  assert.ok(log.some((l) => l.action === 'delete' && l.targetName === 'Плохой канал'));
+});

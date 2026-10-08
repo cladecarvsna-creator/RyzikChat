@@ -74,6 +74,11 @@ export class Hub {
     }
   }
 
+  /** Закрывает все подключения пользователя (бан): клиент увидит код 4003. */
+  disconnectUser(userId, reason = 'banned') {
+    for (const ws of this.sockets.get(userId) ?? []) ws.close(4003, reason);
+  }
+
   /** Событие про пользователя: ему самому и всем, с кем у него есть общий чат. */
   broadcastUser(userId, event) {
     const peers = this.locals ? this.locals.sharedChatPeers(userId) : [];

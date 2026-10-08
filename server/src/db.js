@@ -149,6 +149,28 @@ function migrate(db) {
     db.exec("UPDATE chats SET is_public = 1 WHERE type = 'channel'");
   }
   if (!cols('chats').includes('invite_code')) db.exec('ALTER TABLE chats ADD COLUMN invite_code TEXT');
+  // Модерация: бан и ограничение аккаунта, блокировка групп и каналов.
+  if (!cols('users').includes('banned_until')) {
+    db.exec('ALTER TABLE users ADD COLUMN banned_until INTEGER');
+    db.exec('ALTER TABLE users ADD COLUMN ban_reason TEXT');
+    db.exec('ALTER TABLE users ADD COLUMN restricted_until INTEGER');
+    db.exec('ALTER TABLE users ADD COLUMN restrict_reason TEXT');
+  }
+  if (!cols('chats').includes('banned')) {
+    db.exec('ALTER TABLE chats ADD COLUMN banned INTEGER NOT NULL DEFAULT 0');
+    db.exec('ALTER TABLE chats ADD COLUMN ban_reason TEXT');
+  }
+  db.exec(`CREATE TABLE IF NOT EXISTS moderation_log (
+    id TEXT PRIMARY KEY,
+    admin_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    target_name TEXT NOT NULL DEFAULT '',
+    reason TEXT NOT NULL DEFAULT '',
+    until INTEGER,
+    created_at INTEGER NOT NULL
+  )`);
   if (!cols('chats').includes('wallpaper_file_id')) db.exec('ALTER TABLE chats ADD COLUMN wallpaper_file_id TEXT');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS chats_invite_code ON chats(invite_code)');
   if (!cols('users').includes('email')) {

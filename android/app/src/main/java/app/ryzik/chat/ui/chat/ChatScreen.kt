@@ -1,5 +1,6 @@
 package app.ryzik.chat.ui.chat
 
+import androidx.compose.material.icons.rounded.Gavel
 import androidx.compose.material.icons.rounded.EmojiEmotions
 import androidx.compose.material.icons.rounded.HideImage
 import androidx.compose.material.icons.rounded.Wallpaper
@@ -620,6 +621,15 @@ fun ChatScreen(
                 BlockedBar(onUnblock = {
                     peer?.let { p -> scope.launch { runCatching { repo.setBlocked(p.id, false) }.onFailure { error = it.userMessage() } } }
                 })
+            } else if (chat?.banned == true) {
+                ModerationBar(
+                    "Чат заблокирован модерацией" + chat.banReason.takeIf { it.isNotBlank() }?.let { ". Причина: $it" }.orEmpty(),
+                )
+            } else if (canPost && (auth as? AuthState.LoggedIn)?.me?.restrictedUntil != null) {
+                val meNow = (auth as AuthState.LoggedIn).me
+                ModerationBar(
+                    "Аккаунт ограничен: писать сообщения пока нельзя" + meNow.restrictReason.takeIf { it.isNotBlank() }?.let { ". Причина: $it" }.orEmpty(),
+                )
             } else if (!canPost && chat != null) {
                 ChannelBar(
                     subscribed = chat.myRole != null,
@@ -873,6 +883,22 @@ private fun DateChip(t: Long) {
     Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
         Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.9f)) {
             Text(formatDay(t), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+        }
+    }
+}
+
+/** Плашка вместо поля ввода: чат заблокирован или аккаунт ограничен. */
+@Composable
+private fun ModerationBar(text: String) {
+    Surface(
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.errorContainer,
+        modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.Gavel, null, tint = MaterialTheme.colorScheme.onErrorContainer)
+            Spacer(Modifier.width(12.dp))
+            Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onErrorContainer)
         }
     }
 }

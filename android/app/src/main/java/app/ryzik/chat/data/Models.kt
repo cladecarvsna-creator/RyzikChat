@@ -39,7 +39,47 @@ data class User(
     /** Только для себя: включена ли двухэтапная проверка и подсказка к ней. */
     val has2fa: Boolean = false,
     val twofaHint: String = "",
+    /** Модерация. isBanned видят все; сроки и причины — сам пользователь (ограничение) и админы. */
+    val isBanned: Boolean = false,
+    val bannedUntil: Long? = null,
+    val banReason: String = "",
+    val restrictedUntil: Long? = null,
+    val restrictReason: String = "",
+    val createdAt: Long = 0,
 )
+
+/** Группа или канал глазами модератора. */
+@Serializable
+data class AdminChat(
+    val id: String,
+    val type: String,
+    val title: String = "",
+    val description: String = "",
+    val avatarFileId: String? = null,
+    val isPublic: Boolean = false,
+    val banned: Boolean = false,
+    val banReason: String = "",
+    val memberCount: Int = 0,
+    val owner: User? = null,
+    val createdAt: Long = 0,
+)
+
+/** Запись журнала модерации. */
+@Serializable
+data class ModerationLogEntry(
+    val id: String,
+    val action: String,
+    val targetType: String,
+    val targetId: String,
+    val targetName: String = "",
+    val reason: String = "",
+    val until: Long? = null,
+    val createdAt: Long = 0,
+    val admin: User? = null,
+)
+
+/** Срок «навсегда» на сервере. */
+const val FOREVER_UNTIL = 253402300799000L
 
 /** Ответ на вход: либо сразу сессия, либо нужен пароль двухэтапной проверки. */
 @Serializable
@@ -105,6 +145,9 @@ data class Chat(
     val avatarFileId: String? = null,
     /** Обои чата из фото: одни на всех участников. */
     val wallpaperFileId: String? = null,
+    /** Заблокирован модерацией. */
+    val banned: Boolean = false,
+    val banReason: String = "",
     /** Открытый: ищется и вступить может любой. Частный: только по ссылке. */
     val isPublic: Boolean = false,
     val inviteCode: String? = null,

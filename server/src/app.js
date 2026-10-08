@@ -15,6 +15,8 @@ const MESSAGE_TYPES = new Set(['text', 'image', 'video', 'file', 'voice', 'squar
 const FREE_FILE_MB = Number(process.env.FREE_FILE_MB ?? 200);
 const PREMIUM_FILE_MB = Number(process.env.MAX_FILE_MB ?? 2048);
 const MAX_PAYLOAD = 64 * 1024;
+/** Срок «навсегда» для бана и ограничения. */
+const FOREVER = 253402300799000;
 
 export class HttpError extends Error {
   constructor(status, code, message) {
@@ -72,7 +74,27 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
       online: hub.isOnline(row.id),
       lastSeen: row.last_seen,
       badges: badgesOf.all(row.id),
+      isBanned: isBannedRow(row),
     };
+  }
+
+  // ---------- модерация: проверки ----------
+  /** Бан и ограничение действуют до *_until; null — нет, FOREVER — навсегда. */
+  const activeUntil = (until) => until != null && (until === FOREVER || until > now());
+  function isBannedRow(row) { return activeUntil(row?.banned_until ?? null); }
+  function isRestrictedRow(row) { return activeUntil(row?.restricted_until ?? null); }
+  const untilText = (until) => until === FOREVER ? 'навсегда' : `до ${new Date(until).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК`;
+
+  /** Ограниченный аккаунт может читать, но не писать, не создавать чаты и не загружать файлы. */
+  function requireNotRestricted(userId) {
+    const row = getUserRow.get(userId);
+    if (isRestrictedRow(row)) {
+      throw new HttpError(403, 'restricted', `Ваш аккаунт ограничен ${untilText(row.restricted_until)}` + (row.restrict_reason ? `. Причина: ${row.restrict_reason}` : ''));
+    }
+  }
+
+  function requireChatNotBanned(chat) {
+    if (chat?.banned) throw new HttpError(403, 'chat_banned', 'Этот чат заблокирован модерацией' + (chat.ban_reason ? `. Причина: ${chat.ban_reason}` : ''));
   }
 
   const getUserRow = db.prepare('SELECT * FROM users WHERE id = ?');
@@ -135,6 +157,9 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
       avatarFileId: chat.avatar_file_id ?? null,
       // Обои чата из фото: их видят все участники.
       wallpaperFileId: chat.wallpaper_file_id ?? null,
+      // Заблокирован модерацией: писать и вступать нельзя.
+      banned: !!chat.banned,
+      banReason: chat.banned ? chat.ban_reason ?? '' : '',
       isPublic: !!chat.is_public,
       // Служебный чат RyzikChat Info: сюда приходят коды входа.
       isService: chat.created_by === SYSTEM_ID,
@@ -259,9 +284,15 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     const token = header.startsWith('Bearer ') ? header.slice(7) : req.query.token;
     const s = token && sessionStmt.get(String(token));
     if (!s) return next(new HttpError(401, 'unauthorized', 'Нужно войти заново'));
+    const u = getUserRow.get(s.user_id);
+    if (isBannedRow(u)) return next(bannedError(u));
     req.userId = s.user_id;
     req.token = String(token);
     next();
+  }
+
+  function bannedError(row) {
+    return new HttpError(403, 'banned', `Аккаунт заблокирован ${untilText(row.banned_until)}` + (row.ban_reason ? `. Причина: ${row.ban_reason}` : ''));
   }
 
   function adminOnly(req, _res, next) {
@@ -277,7 +308,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     return token;
   }
 
-  app.get('/api/health', (_req, res) => res.json({ ok: true, name: 'RyzikChat', version: '0.6.0', apiVersion: 1 }));
+  app.get('/api/health', (_req, res) => res.json({ ok: true, name: 'RyzikChat', version: '0.6.1', apiVersion: 1 }));
 
   // Открытое описание API — чтобы можно было написать клиент под любое устройство.
   app.get('/api/openapi.json', (_req, res) => res.sendFile(path.join(import.meta.dirname, '..', 'openapi.json')));
@@ -318,6 +349,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     if (!row || typeof password !== 'string' || !verifyPassword(password, row.password_hash)) {
       throw new HttpError(401, 'bad_credentials', 'Неверное имя пользователя или пароль');
     }
+    if (isBannedRow(row)) throw bannedError(row);
     // Включена двухэтапная проверка — после пароля от аккаунта спрашиваем дополнительный пароль.
     if (row.twofa_hash) {
       const id = newId();
@@ -439,7 +471,11 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
 
   const meView = (id) => {
     const row = getUserRow.get(id);
-    return { ...publicUser(row), has2fa: !!row?.twofa_hash, twofaHint: row?.twofa_hint ?? '' };
+    return {
+      ...publicUser(row), has2fa: !!row?.twofa_hash, twofaHint: row?.twofa_hint ?? '',
+      restrictedUntil: isRestrictedRow(row) ? row.restricted_until : null,
+      restrictReason: isRestrictedRow(row) ? row.restrict_reason ?? '' : '',
+    };
   };
 
   // Двухэтапная проверка: дополнительный пароль при входе на новом устройстве.
@@ -561,7 +597,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     const like = `%${q.replace(/[%_\\]/g, (c) => '\\' + c)}%`;
     const rows = db.prepare(`SELECT * FROM users WHERE id != ? AND id != ? AND (username LIKE ? ESCAPE '\\' OR display_name LIKE ? ESCAPE '\\')
       ORDER BY username LIMIT 30`).all(req.userId, SYSTEM_ID, like, like);
-    res.json(rows.map(publicUser));
+    res.json(rows.filter((r) => !isBannedRow(r)).map(publicUser));
   });
 
   app.get('/api/users/:id', (req, res) => {
@@ -609,6 +645,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
   });
 
   app.post('/api/chats/group', (req, res) => {
+    requireNotRestricted(req.userId);
     const title = String(req.body?.title ?? '').trim().slice(0, 128);
     if (!title) throw new HttpError(400, 'bad_title', 'Укажите название группы');
     const ids = [...new Set([req.userId, ...(req.body?.memberIds ?? []).map(String)])]
@@ -625,6 +662,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
   // ---------- каналы ----------
 
   app.post('/api/chats/channel', (req, res) => {
+    requireNotRestricted(req.userId);
     const title = String(req.body?.title ?? '').trim().slice(0, 128);
     if (!title) throw new HttpError(400, 'bad_title', 'Укажите название канала');
     const description = String(req.body?.description ?? '').trim().slice(0, 500);
@@ -640,13 +678,14 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     const q = String(req.query.q ?? '').trim();
     const like = `%${q.replace(/[%_\\]/g, (c) => '\\' + c)}%`;
     const rows = db.prepare(`SELECT c.id, (SELECT COUNT(*) FROM chat_members m WHERE m.chat_id = c.id) AS n FROM chats c
-      WHERE c.type IN ('channel', 'group') AND c.is_public = 1 AND (c.title LIKE ? ESCAPE '\\' OR c.description LIKE ? ESCAPE '\\')
+      WHERE c.type IN ('channel', 'group') AND c.is_public = 1 AND c.banned = 0 AND (c.title LIKE ? ESCAPE '\\' OR c.description LIKE ? ESCAPE '\\')
       ORDER BY n DESC LIMIT 30`).all(like, like);
     res.json(rows.map((r) => chatView(r.id, req.userId, { preview: true })).filter(Boolean));
   }
   app.get('/api/channels/search', searchPublic);
 
   function join(chat, userId) {
+    requireChatNotBanned(chat);
     const role = chat.type === 'channel' ? 'subscriber' : 'member';
     const added = db.prepare('INSERT OR IGNORE INTO chat_members (chat_id, user_id, role, last_read_seq, joined_at) VALUES (?, ?, ?, ?, ?)')
       .run(chat.id, userId, role, chat.last_seq, now()).changes;
@@ -805,6 +844,8 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
 
   app.post('/api/chats/:id/messages', (req, res) => {
     const member = requireMember(req.params.id, req.userId);
+    requireNotRestricted(req.userId);
+    requireChatNotBanned(getChatRow.get(req.params.id));
     if (getChatRow.get(req.params.id).type === 'channel' && !['owner', 'admin'].includes(member.role)) {
       throw new HttpError(403, 'forbidden', 'Писать в канал могут только его админы');
     }
@@ -899,6 +940,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
 
   app.post('/api/files', upload.single('file'), (req, res) => {
     if (!req.file) throw new HttpError(400, 'no_file', 'Файл не получен');
+    try { requireNotRestricted(req.userId); } catch (e) { fs.rmSync(req.file.path, { force: true }); throw e; }
     if (!getUserRow.get(req.userId).is_premium && req.file.size > FREE_FILE_MB * 1024 * 1024) {
       fs.rmSync(req.file.path, { force: true });
       throw new HttpError(413, 'too_large', `Без Премиума можно отправлять файлы до ${FREE_FILE_MB} МБ`);
@@ -950,6 +992,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
   });
 
   app.post('/api/stickers/packs', (req, res) => {
+    requireNotRestricted(req.userId);
     const title = String(req.body?.title ?? '').trim().slice(0, 64);
     if (!title) throw new HttpError(400, 'bad_title', 'Придумайте название набора');
     const id = newId();
@@ -1077,6 +1120,157 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     if (!u) throw new HttpError(404, 'user_not_found', 'Пользователь не найден');
     hub.broadcastUser(u.id, { type: 'user.updated', user: u });
     res.json(u);
+  });
+
+  // ---------- модерация ----------
+
+  function logModeration(adminId, action, targetType, targetId, targetName, reason = '', until = null) {
+    db.prepare(`INSERT INTO moderation_log (id, admin_id, action, target_type, target_id, target_name, reason, until, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(newId(), adminId, action, targetType, targetId, String(targetName ?? ''), String(reason ?? ''), until, now());
+  }
+
+  /** Срок из запроса: days > 0 — на столько дней, иначе навсегда. */
+  function untilFrom(body) {
+    const days = Number(body?.days ?? 0);
+    return Number.isFinite(days) && days > 0 ? now() + Math.round(days * 86_400_000) : FOREVER;
+  }
+
+  function adminUserView(row) {
+    return {
+      ...publicUser(row),
+      bannedUntil: isBannedRow(row) ? row.banned_until : null,
+      banReason: isBannedRow(row) ? row.ban_reason ?? '' : '',
+      restrictedUntil: isRestrictedRow(row) ? row.restricted_until : null,
+      restrictReason: isRestrictedRow(row) ? row.restrict_reason ?? '' : '',
+      createdAt: row.created_at,
+    };
+  }
+
+  function moderatedTarget(req) {
+    const row = getUserRow.get(req.params.id);
+    if (!row || row.id === SYSTEM_ID) throw new HttpError(404, 'user_not_found', 'Пользователь не найден');
+    if (row.id === req.userId) throw new HttpError(400, 'self', 'Нельзя применить это к себе');
+    if (row.is_admin) throw new HttpError(400, 'is_admin', 'Сначала снимите с пользователя права администратора');
+    return row;
+  }
+
+  // Поиск пользователей для модерации; без q — заблокированные и ограниченные.
+  app.get('/api/admin/users', adminOnly, (req, res) => {
+    const q = String(req.query.q ?? '').trim().replace(/^@/, '');
+    const rows = q
+      ? db.prepare(`SELECT * FROM users WHERE id != ? AND (username LIKE ? ESCAPE '\\' OR display_name LIKE ? ESCAPE '\\') ORDER BY username LIMIT 50`)
+        .all(SYSTEM_ID, `%${q.replace(/[%_\\]/g, (c) => '\\' + c)}%`, `%${q.replace(/[%_\\]/g, (c) => '\\' + c)}%`)
+      : db.prepare('SELECT * FROM users WHERE banned_until IS NOT NULL OR restricted_until IS NOT NULL ORDER BY username LIMIT 200').all()
+        .filter((r) => isBannedRow(r) || isRestrictedRow(r));
+    res.json(rows.map(adminUserView));
+  });
+
+  app.post('/api/admin/users/:id/ban', adminOnly, (req, res) => {
+    const row = moderatedTarget(req);
+    const until = untilFrom(req.body);
+    const reason = String(req.body?.reason ?? '').trim().slice(0, 300);
+    db.prepare('UPDATE users SET banned_until = ?, ban_reason = ? WHERE id = ?').run(until, reason, row.id);
+    // Выкидываем из всех сеансов.
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(row.id);
+    hub.disconnectUser(row.id);
+    logModeration(req.userId, 'ban', 'user', row.id, row.username, reason, until);
+    res.json(adminUserView(getUserRow.get(row.id)));
+  });
+
+  app.delete('/api/admin/users/:id/ban', adminOnly, (req, res) => {
+    const row = getUserRow.get(req.params.id);
+    if (!row) throw new HttpError(404, 'user_not_found', 'Пользователь не найден');
+    db.prepare('UPDATE users SET banned_until = NULL, ban_reason = NULL WHERE id = ?').run(row.id);
+    logModeration(req.userId, 'unban', 'user', row.id, row.username);
+    postInfo(row.id, 'Ваш аккаунт разблокирован. Пожалуйста, соблюдайте правила RyzikChat.');
+    res.json(adminUserView(getUserRow.get(row.id)));
+  });
+
+  app.post('/api/admin/users/:id/restrict', adminOnly, (req, res) => {
+    const row = moderatedTarget(req);
+    const until = untilFrom(req.body);
+    const reason = String(req.body?.reason ?? '').trim().slice(0, 300);
+    db.prepare('UPDATE users SET restricted_until = ?, restrict_reason = ? WHERE id = ?').run(until, reason, row.id);
+    logModeration(req.userId, 'restrict', 'user', row.id, row.username, reason, until);
+    postInfo(row.id, `Ваш аккаунт ограничен ${untilText(until)}: вы можете читать чаты, но не можете писать, создавать группы и каналы и загружать файлы.` +
+      (reason ? `\n\nПричина: ${reason}` : ''));
+    hub.sendToUsers([row.id], { type: 'user.updated', user: meView(row.id) });
+    res.json(adminUserView(getUserRow.get(row.id)));
+  });
+
+  app.delete('/api/admin/users/:id/restrict', adminOnly, (req, res) => {
+    const row = getUserRow.get(req.params.id);
+    if (!row) throw new HttpError(404, 'user_not_found', 'Пользователь не найден');
+    db.prepare('UPDATE users SET restricted_until = NULL, restrict_reason = NULL WHERE id = ?').run(row.id);
+    logModeration(req.userId, 'unrestrict', 'user', row.id, row.username);
+    postInfo(row.id, 'Ограничения с вашего аккаунта сняты.');
+    hub.sendToUsers([row.id], { type: 'user.updated', user: meView(row.id) });
+    res.json(adminUserView(getUserRow.get(row.id)));
+  });
+
+  function adminChatView(chat) {
+    const owner = db.prepare("SELECT user_id FROM chat_members WHERE chat_id = ? AND role = 'owner'").get(chat.id);
+    return {
+      id: chat.id, type: chat.type, title: chat.title, description: chat.description ?? '',
+      avatarFileId: chat.avatar_file_id ?? null, isPublic: !!chat.is_public,
+      banned: !!chat.banned, banReason: chat.ban_reason ?? '',
+      memberCount: memberCountStmt.get(chat.id).n,
+      owner: owner ? getUser(owner.user_id) : null,
+      createdAt: chat.created_at,
+    };
+  }
+
+  function moderatedChat(id) {
+    const chat = getChatRow.get(String(id));
+    if (!chat || !['group', 'channel'].includes(chat.type) || chat.created_by === SYSTEM_ID) {
+      throw new HttpError(404, 'chat_not_found', 'Группа или канал не найдены');
+    }
+    return chat;
+  }
+
+  // Поиск групп и каналов (и частных тоже); без q — заблокированные.
+  app.get('/api/admin/chats', adminOnly, (req, res) => {
+    const q = String(req.query.q ?? '').trim();
+    const like = `%${q.replace(/[%_\\]/g, (c) => '\\' + c)}%`;
+    const rows = q
+      ? db.prepare(`SELECT * FROM chats WHERE type IN ('group', 'channel') AND created_by != ? AND (title LIKE ? ESCAPE '\\' OR id = ?) ORDER BY created_at DESC LIMIT 50`).all(SYSTEM_ID, like, q)
+      : db.prepare("SELECT * FROM chats WHERE type IN ('group', 'channel') AND banned = 1 ORDER BY created_at DESC LIMIT 200").all();
+    res.json(rows.map(adminChatView));
+  });
+
+  app.post('/api/admin/chats/:id/ban', adminOnly, (req, res) => {
+    const chat = moderatedChat(req.params.id);
+    const reason = String(req.body?.reason ?? '').trim().slice(0, 300);
+    db.prepare('UPDATE chats SET banned = 1, ban_reason = ? WHERE id = ?').run(reason, chat.id);
+    logModeration(req.userId, 'ban', chat.type, chat.id, chat.title, reason);
+    broadcastChat(chat.id, { type: 'chat.updated', chatId: chat.id });
+    res.json(adminChatView(getChatRow.get(chat.id)));
+  });
+
+  app.delete('/api/admin/chats/:id/ban', adminOnly, (req, res) => {
+    const chat = moderatedChat(req.params.id);
+    db.prepare('UPDATE chats SET banned = 0, ban_reason = NULL WHERE id = ?').run(chat.id);
+    logModeration(req.userId, 'unban', chat.type, chat.id, chat.title);
+    broadcastChat(chat.id, { type: 'chat.updated', chatId: chat.id });
+    res.json(adminChatView(getChatRow.get(chat.id)));
+  });
+
+  app.delete('/api/admin/chats/:id', adminOnly, (req, res) => {
+    const chat = moderatedChat(req.params.id);
+    const members = memberIds(chat.id);
+    const reason = String(req.body?.reason ?? '').trim().slice(0, 300);
+    db.prepare('DELETE FROM chats WHERE id = ?').run(chat.id);
+    logModeration(req.userId, 'delete', chat.type, chat.id, chat.title, reason);
+    hub.sendToUsers(members, { type: 'chat.removed', chatId: chat.id });
+    res.json({ ok: true });
+  });
+
+  app.get('/api/admin/log', adminOnly, (_req, res) => {
+    const rows = db.prepare('SELECT * FROM moderation_log ORDER BY created_at DESC LIMIT 200').all();
+    res.json(rows.map((r) => ({
+      id: r.id, action: r.action, targetType: r.target_type, targetId: r.target_id, targetName: r.target_name,
+      reason: r.reason, until: r.until, createdAt: r.created_at, admin: getUser(r.admin_id),
+    })));
   });
 
   // ---------- звонки ----------

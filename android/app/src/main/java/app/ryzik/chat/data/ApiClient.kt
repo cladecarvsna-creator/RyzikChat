@@ -337,6 +337,24 @@ class ApiClient(
     suspend fun setPremium(userId: String, isPremium: Boolean) =
         call("PUT", "/api/admin/users/$userId/premium", buildJsonObject { put("isPremium", isPremium) }, User.serializer())
 
+    // ---------- модерация ----------
+
+    private fun q(s: String) = java.net.URLEncoder.encode(s, "UTF-8")
+    suspend fun adminUsers(query: String) = call("GET", "/api/admin/users?q=" + q(query), null, ListSerializer(User.serializer()))
+    suspend fun banUser(userId: String, days: Double, reason: String) =
+        call("POST", "/api/admin/users/$userId/ban", buildJsonObject { put("days", days); put("reason", reason) }, User.serializer())
+    suspend fun unbanUser(userId: String) = call("DELETE", "/api/admin/users/$userId/ban", null, User.serializer())
+    suspend fun restrictUser(userId: String, days: Double, reason: String) =
+        call("POST", "/api/admin/users/$userId/restrict", buildJsonObject { put("days", days); put("reason", reason) }, User.serializer())
+    suspend fun unrestrictUser(userId: String) = call("DELETE", "/api/admin/users/$userId/restrict", null, User.serializer())
+    suspend fun adminChats(query: String) = call("GET", "/api/admin/chats?q=" + q(query), null, ListSerializer(AdminChat.serializer()))
+    suspend fun banChat(chatId: String, reason: String) =
+        call("POST", "/api/admin/chats/$chatId/ban", buildJsonObject { put("reason", reason) }, AdminChat.serializer())
+    suspend fun unbanChat(chatId: String) = call("DELETE", "/api/admin/chats/$chatId/ban", null, AdminChat.serializer())
+    suspend fun deleteChatAsAdmin(chatId: String, reason: String) =
+        call("DELETE", "/api/admin/chats/$chatId", buildJsonObject { put("reason", reason) }, JsonObject.serializer())
+    suspend fun moderationLog() = call("GET", "/api/admin/log", null, ListSerializer(ModerationLogEntry.serializer()))
+
     suspend fun setAdmin(userId: String, isAdmin: Boolean) =
         call("PUT", "/api/admin/users/$userId/admin", buildJsonObject { put("isAdmin", isAdmin) }, User.serializer())
 }

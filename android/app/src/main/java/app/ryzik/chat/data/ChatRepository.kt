@@ -1116,7 +1116,10 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
                 val id = ev.userId ?: return
                 _users.update { m -> m[id]?.let { u -> m + (id to u.copy(online = ev.online == true, lastSeen = ev.lastSeen ?: u.lastSeen)) } ?: m }
             }
-            "user.updated" -> ev.user?.let { rememberUsers(listOf(it)) }
+            "user.updated" -> ev.user?.let { u ->
+                // Про себя сервер шлёт урезанный профиль — перечитываем полный (2FA, ограничения).
+                if (u.id == myId) scope.launch { runCatching { rememberUsers(listOf(api.me())) } } else rememberUsers(listOf(u))
+            }
             "call.signal" -> {
                 val from = ev.from ?: return
                 val data = ev.data ?: return
