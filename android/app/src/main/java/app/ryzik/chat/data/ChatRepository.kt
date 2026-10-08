@@ -111,6 +111,9 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
     private val decryptCache = ConcurrentHashMap<String, Content?>()
 
     /** Почта аккаунта (её видит только владелец). */
+    private val _stickerPacks = MutableStateFlow<List<StickerPack>>(emptyList())
+    val stickerPacks: StateFlow<List<StickerPack>> = _stickerPacks
+
     private val _contacts = MutableStateFlow<List<User>>(emptyList())
     val contacts: StateFlow<List<User>> = _contacts
 
@@ -222,14 +225,14 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
         finishAuth(res, kp.privateKey)
     }
 
-    /** Вход ждёт код подтверждения: ключ для расшифровки держим только в памяти. */
+    /** Вход ждёт пароль двухэтапной проверки: ключ для расшифровки держим только в памяти. */
     private var pendingLogin: Pair<String, ByteArray>? = null
 
-    /** Вход. Возвращает null, если вход завершён, или куда отправлен код подтверждения. */
+    /** Вход. Возвращает null, если вход завершён, или ответ с need2fa, если нужен второй пароль. */
     suspend fun login(username: String, password: String): LoginResponse? = withContext(Dispatchers.Default) {
         val keys = E2E.derivePasswordKeys(username, password)
         val res = api.login(username, keys.authKey, deviceName())
-        if (res.needCode && res.challengeId != null) {
+        if (res.need2fa && res.challengeId != null) {
             pendingLogin = res.challengeId to keys.vaultKey
             return@withContext res
         }
@@ -239,9 +242,9 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
         null
     }
 
-    suspend fun confirmLogin(code: String) = withContext(Dispatchers.Default) {
+    suspend fun confirmLogin2fa(password: String) = withContext(Dispatchers.Default) {
         val (challenge, vaultKey) = pendingLogin ?: throw IOException("Начните вход заново")
-        val res = api.confirmLogin(challenge, code.trim())
+        val res = api.login2fa(challenge, password)
         val priv = runCatching { E2E.openPrivateKey(res.encryptedPrivateKey, vaultKey) }
             .getOrElse { throw IOException("Не удалось расшифровать ключи аккаунта") }
         pendingLogin = null
@@ -291,6 +294,7 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
         _auth.value = AuthState.LoggedIn(me)
         scope.launch { refreshChats() }
         scope.launch { runCatching { refreshContacts() } }
+        scope.launch { runCatching { refreshStickers() } }
         connectSocket()
     }
 
@@ -398,6 +402,107 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
     }
 
     fun avatarUrl(fileId: String?) = fileId?.let { api.avatarUrl(it) }
+
+    // ================= Двухэтапная проверка =================
+
+    /** Включить или сменить дополнительный пароль. accountPassword — обычный пароль от аккаунта. */
+    suspend fun set2fa(accountPassword: String, currentPassword: String?, password: String, hint: String) = withContext(Dispatchers.Default) {
+        val me = (auth.value as AuthState.LoggedIn).me
+        val authKey = E2E.derivePasswordKeys(me.username, accountPassword).authKey
+        val updated = api.set2fa(authKey, currentPassword, password, hint.trim())
+        _auth.value = AuthState.LoggedIn(updated)
+    }
+
+    suspend fun disable2fa(password: String) {
+        _auth.value = AuthState.LoggedIn(api.disable2fa(password))
+    }
+
+    // ================= Обои чата =================
+
+    /** Ставит фото обоями чата для всех участников. null — убрать. */
+    suspend fun setWallpaper(chatId: String, uri: Uri?) {
+        val fileId = uri?.let { uploadImageScaled(it, 1600, "image/jpeg") }
+        upsertChat(api.setWallpaper(chatId, fileId))
+    }
+
+    /** Картинка, уменьшенная по длинной стороне до maxSide. Загружается открыто. */
+    private suspend fun uploadImageScaled(uri: Uri, maxSide: Int, mime: String, square: Boolean = false): String = withContext(Dispatchers.IO) {
+        val src = context.contentResolver.openInputStream(uri)!!.use { android.graphics.BitmapFactory.decodeStream(it) }
+            ?: throw IOException("Не удалось открыть картинку")
+        val bmp = if (square) {
+            // Стикер: вписываем в квадрат 512×512 с прозрачными полями.
+            val out = android.graphics.Bitmap.createBitmap(maxSide, maxSide, android.graphics.Bitmap.Config.ARGB_8888)
+            val k = maxSide.toFloat() / maxOf(src.width, src.height)
+            val w = (src.width * k).toInt().coerceAtLeast(1)
+            val h = (src.height * k).toInt().coerceAtLeast(1)
+            android.graphics.Canvas(out).drawBitmap(
+                src, null,
+                android.graphics.Rect((maxSide - w) / 2, (maxSide - h) / 2, (maxSide - w) / 2 + w, (maxSide - h) / 2 + h),
+                android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG),
+            )
+            out
+        } else {
+            val k = minOf(1f, maxSide.toFloat() / maxOf(src.width, src.height))
+            if (k < 1f) android.graphics.Bitmap.createScaledBitmap(src, (src.width * k).toInt(), (src.height * k).toInt(), true) else src
+        }
+        val tmp = File(context.cacheDir, "img_${UUID.randomUUID()}")
+        try {
+            tmp.outputStream().use { o ->
+                if (mime == "image/webp") {
+                    @Suppress("DEPRECATION")
+                    val fmt = if (android.os.Build.VERSION.SDK_INT >= 30) android.graphics.Bitmap.CompressFormat.WEBP_LOSSY else android.graphics.Bitmap.CompressFormat.WEBP
+                    bmp.compress(fmt, 90, o)
+                } else bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, o)
+            }
+            api.upload(tmp, mime).id
+        } finally {
+            tmp.delete()
+        }
+    }
+
+    // ================= Стикеры =================
+
+    suspend fun refreshStickers() {
+        _stickerPacks.value = api.stickerPacks()
+    }
+
+    private fun putPack(p: StickerPack) {
+        _stickerPacks.update { l ->
+            when {
+                !p.isAdded -> l.filterNot { it.id == p.id }
+                l.any { it.id == p.id } -> l.map { if (it.id == p.id) p else it }
+                else -> l + p
+            }
+        }
+    }
+
+    suspend fun createStickerPack(title: String): StickerPack = api.createStickerPack(title.trim()).also { putPack(it) }
+
+    /** Делает стикер из картинки: квадрат 512×512 WebP, затем добавляет в набор. */
+    suspend fun createSticker(packId: String, uri: Uri, emoji: String = ""): StickerPack {
+        val fileId = uploadImageScaled(uri, 512, "image/webp", square = true)
+        return api.addSticker(packId, fileId, emoji).also { putPack(it) }
+    }
+
+    suspend fun removeSticker(packId: String, stickerId: String) = api.removeSticker(packId, stickerId).also { putPack(it) }
+
+    suspend fun deleteStickerPack(id: String) {
+        api.deleteStickerPack(id)
+        _stickerPacks.update { l -> l.filterNot { it.id == id } }
+    }
+
+    suspend fun stickerPack(id: String): StickerPack = api.stickerPack(id)
+
+    suspend fun setPackAdded(id: String, added: Boolean): StickerPack = api.setPackAdded(id, added).also { putPack(it) }
+
+    fun sendSticker(chatId: String, pack: StickerPack, sticker: Sticker, replyTo: String? = null) {
+        sendContent(chatId, "sticker", Content(sticker = StickerRef(pack.id, sticker.id, sticker.fileId, sticker.emoji)), replyTo, null)
+    }
+
+    /** Поделиться набором: отправить ссылку на него в чат. */
+    fun sharePack(chatId: String, pack: StickerPack) {
+        sendText(chatId, "Набор стикеров «${pack.title}»: ${stickerPackLink(pack.id)}")
+    }
 
     // ================= Чаты =================
 
@@ -571,16 +676,17 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
     fun previewOf(m: Message?): String {
         if (m == null) return ""
         if (m.deleted) return "Сообщение удалено"
-        val c = decrypt(m).content ?: return "🔒 Зашифрованное сообщение"
+        val c = decrypt(m).content ?: return "Зашифрованное сообщение"
         return previewText(m.type, c)
     }
 
     fun previewText(type: String, c: Content): String = when (type) {
-        "image" -> "🖼 Фото" + c.text.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
-        "video" -> if (c.file?.square == true) "🟪 Видеосообщение" else "🎬 Видео" + c.text.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
-        "file" -> "📎 ${c.file?.name ?: "Файл"}"
-        "voice" -> "🎤 Голосовое сообщение"
-        "square" -> "🟪 Видеосообщение"
+        "image" -> "Фото" + c.text.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+        "video" -> if (c.file?.square == true) "Видеосообщение" else "Видео" + c.text.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+        "file" -> "${c.file?.name ?: "Файл"}"
+        "voice" -> "Голосовое сообщение"
+        "square" -> "Видеосообщение"
+        "sticker" -> "Стикер"
         else -> c.text
     }
 

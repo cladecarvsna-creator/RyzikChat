@@ -37,12 +37,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
@@ -239,7 +239,7 @@ fun ProfileHeader(
             }
             if (isAdmin) {
                 Spacer(Modifier.width(4.dp))
-                Icon(Icons.Default.Verified, "Администратор", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                Icon(Icons.Rounded.Verified, "Администратор", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
             }
         }
     }
@@ -273,7 +273,7 @@ private fun AvatarWithRing(name: String, url: String?, size: Dp, online: Boolean
         contentAlignment = Alignment.Center,
     ) {
         Box(Modifier.size(size).border(BorderStroke(3.dp, surface), CircleShape)) {
-            Avatar(name, url, size, online = online)
+            Avatar(name, url, size, online = online, shape = CircleShape)
         }
     }
 }
@@ -311,7 +311,7 @@ fun ProfileLookScreen(onBack: () -> Unit, onOpenPremium: () -> Unit) {
     Scaffold(topBar = {
         TopAppBar(
             title = { Text("Оформление профиля") },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") } },
             actions = {
                 if (saving) CircularProgressIndicator(Modifier.size(24.dp).padding(end = 8.dp), strokeWidth = 2.dp)
                 else TextButton(onClick = ::save) { Text(if (premium) "Сохранить" else "Получить Премиум") }
@@ -343,7 +343,7 @@ fun ProfileLookScreen(onBack: () -> Unit, onOpenPremium: () -> Unit) {
                         Box(
                             Modifier.size(40.dp).clip(CircleShape).background(Brush.linearGradient(PremiumGradient)),
                             contentAlignment = Alignment.Center,
-                        ) { Icon(Icons.Default.Star, null, tint = Color.White) }
+                        ) { Icon(Icons.Rounded.Star, null, tint = Color.White) }
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text("Доступно с Премиумом", style = MaterialTheme.typography.titleSmall)
@@ -366,7 +366,7 @@ fun ProfileLookScreen(onBack: () -> Unit, onOpenPremium: () -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     Choice(selected = status.isBlank(), onClick = { status = "" }) {
-                        Icon(Icons.Default.Block, "Без статуса", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(Icons.Rounded.Block, "Без статуса", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     ProfileLook.statuses.forEach { e ->
                         Choice(selected = status == e, onClick = { status = e }) { Text(e, fontSize = 22.sp) }
@@ -379,7 +379,7 @@ fun ProfileLookScreen(onBack: () -> Unit, onOpenPremium: () -> Unit) {
                 LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item {
                         Choice(selected = style.color1 == null, onClick = { style = style.copy(color1 = null, color2 = null) }, size = 48.dp) {
-                            Icon(Icons.Default.Block, "Стандартный", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(Icons.Rounded.Block, "Стандартный", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     items(ProfileLook.gradients) { (a, b) ->
@@ -397,7 +397,7 @@ fun ProfileLookScreen(onBack: () -> Unit, onOpenPremium: () -> Unit) {
             item {
                 Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
-                        Icon(Icons.Default.Image, null)
+                        Icon(Icons.Rounded.Image, null)
                         Spacer(Modifier.width(8.dp))
                         Text("Выбрать фото")
                     }
@@ -412,7 +412,7 @@ fun ProfileLookScreen(onBack: () -> Unit, onOpenPremium: () -> Unit) {
                 LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     item {
                         Choice(selected = style.pattern == null, onClick = { style = style.copy(pattern = null) }) {
-                            Icon(Icons.Default.Block, "Без узора", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(Icons.Rounded.Block, "Без узора", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     items(ProfileLook.patterns) { e ->
@@ -436,7 +436,7 @@ fun ProfileLookScreen(onBack: () -> Unit, onOpenPremium: () -> Unit) {
                 LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item {
                         Choice(selected = style.nameColor == null, onClick = { style = style.copy(nameColor = null) }, size = 40.dp) {
-                            Icon(Icons.Default.Block, "Обычный", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(Icons.Rounded.Block, "Обычный", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     items(ProfileLook.nameColors) { c ->
@@ -498,7 +498,7 @@ private fun Choice(
         contentAlignment = Alignment.Center,
     ) {
         content()
-        if (selected && background != null) Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(size * 0.4f))
+        if (selected && background != null) Icon(Icons.Rounded.Check, null, tint = Color.White, modifier = Modifier.size(size * 0.4f))
     }
 }
 

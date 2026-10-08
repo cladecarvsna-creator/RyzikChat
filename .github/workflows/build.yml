@@ -64,6 +64,22 @@ jobs:
         run: ./gradlew assembleRelease --stacktrace
       - name: Переименовать APK
         run: cp app/build/outputs/apk/release/app-release.apk RyzikChat.apk
+      - name: Описание обновления (update.json)
+        env:
+          NOTES: ${{ github.event.head_commit.message }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          g = open('app/build.gradle.kts', encoding='utf-8').read()
+          code = int(re.search(r'versionCode\s*=\s*(\d+)', g).group(1))
+          name = re.search(r'versionName\s*=\s*"([^"]+)"', g).group(1)
+          notes = (os.environ.get('NOTES') or '').strip()
+          json.dump({
+              'versionCode': code, 'versionName': name, 'notes': notes[:2000],
+              'apk': 'https://github.com/cladecarvsna-creator/RyzikChat/releases/download/ryzikchat-latest/RyzikChat.apk',
+          }, open('update.json', 'w', encoding='utf-8'), ensure_ascii=False)
+          PY
+          cat update.json
       - uses: actions/upload-artifact@v4
         with:
           name: RyzikChat-apk
@@ -83,4 +99,6 @@ jobs:
           make_latest: false
           target_commitish: ${{ github.sha }}
           body: "APK RyzikChat из ветки ryzikchat, коммит ${{ github.sha }}."
-          files: android/RyzikChat.apk
+          files: |
+            android/RyzikChat.apk
+            android/update.json

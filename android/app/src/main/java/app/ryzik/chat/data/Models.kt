@@ -36,17 +36,21 @@ data class User(
     val isBlocked: Boolean = false,
     /** Служебный аккаунт RyzikChat Info. */
     val isService: Boolean = false,
+    /** Только для себя: включена ли двухэтапная проверка и подсказка к ней. */
+    val has2fa: Boolean = false,
+    val twofaHint: String = "",
 )
 
-/** Ответ на вход: либо сразу сессия, либо нужен код подтверждения. */
+/** Ответ на вход: либо сразу сессия, либо нужен пароль двухэтапной проверки. */
 @Serializable
 data class LoginResponse(
     val token: String? = null,
     val user: User? = null,
     val encryptedPrivateKey: String? = null,
-    val needCode: Boolean = false,
+    val need2fa: Boolean = false,
     val challengeId: String? = null,
-    val sentTo: List<String> = emptyList(),
+    /** Подсказка к паролю двухэтапной проверки. */
+    val hint: String = "",
 )
 
 /** Оформление профиля с Премиумом. Цвета в виде #RRGGBB. */
@@ -99,6 +103,8 @@ data class Chat(
     val memberCount: Int = 0,
     val myRole: String? = null,
     val avatarFileId: String? = null,
+    /** Обои чата из фото: одни на всех участников. */
+    val wallpaperFileId: String? = null,
     /** Открытый: ищется и вступить может любой. Частный: только по ссылке. */
     val isPublic: Boolean = false,
     val inviteCode: String? = null,
@@ -156,7 +162,28 @@ data class FileRef(
 data class Content(
     val text: String = "",
     val file: FileRef? = null,
+    val sticker: StickerRef? = null,
 )
+
+/** Стикер в сообщении: картинка лежит на сервере открыто, как аватарка. */
+@Serializable
+data class StickerRef(val packId: String, val id: String, val fileId: String, val emoji: String = "")
+
+@Serializable
+data class Sticker(val id: String, val fileId: String, val emoji: String = "")
+
+@Serializable
+data class StickerPack(
+    val id: String,
+    val title: String,
+    val ownerId: String = "",
+    val isMine: Boolean = false,
+    val isAdded: Boolean = false,
+    val stickers: List<Sticker> = emptyList(),
+)
+
+/** Ссылка, по которой друг откроет набор стикеров. */
+fun stickerPackLink(id: String) = "ryzik://stickers/$id"
 
 // ---------- События WebSocket ----------
 

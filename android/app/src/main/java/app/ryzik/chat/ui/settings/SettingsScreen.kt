@@ -1,12 +1,19 @@
 package app.ryzik.chat.ui.settings
 
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.BatteryChargingFull
-import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.SwitchAccount
+import androidx.compose.material.icons.rounded.SystemUpdate
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.BatteryChargingFull
+import androidx.compose.material.icons.rounded.PersonAdd
 import app.ryzik.chat.ui.theme.PREMIUM_SEEDS_FROM
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.Code
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -17,6 +24,10 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.animation.animateContentSize
+import androidx.compose.ui.graphics.graphicsLayer
+import app.ryzik.chat.update.UpdateState
+import app.ryzik.chat.update.Updater
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -39,27 +50,26 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.filled.AdminPanelSettings
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Chat
+import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.rounded.AdminPanelSettings
+import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.CameraAlt
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Security
+import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -108,16 +118,20 @@ import app.ryzik.chat.ui.theme.wallpaperColors
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-enum class SettingsSection(val title: String, val subtitle: String, val icon: ImageVector) {
-    Appearance("Оформление", "Тема, Material You, обои, размер текста", Icons.Default.Palette),
-    Chats("Чаты", "Отправка, свайпы, реакции, эмодзи", Icons.AutoMirrored.Filled.Chat),
-    Notifications("Уведомления", "Сообщения, звонки, реакции, работа в фоне", Icons.Default.Notifications),
-    Privacy("Конфиденциальность", "Шифрование, сеансы, пароль", Icons.Default.Security),
-    Data("Данные и память", "Автозагрузка, кэш", Icons.Default.Storage),
-    Server("Сервер", "Адрес вашего сервера RyzikChat", Icons.Default.Dns),
-    Api("Открытый API", "Для своих приложений и других устройств", Icons.Default.Code),
-    About("О приложении", "Версия, правила", Icons.Default.Info),
+enum class SettingsSection(val title: String, val subtitle: String, val icon: ImageVector, val color: Color) {
+    Appearance("Оформление", "Тема, цвета, обои, размер текста", Icons.Rounded.Palette, SettingsColors.Purple),
+    Chats("Чаты", "Отправка, свайпы, реакции, эмодзи", Icons.AutoMirrored.Rounded.Chat, SettingsColors.Blue),
+    Notifications("Уведомления", "Сообщения, звонки, работа в фоне", Icons.Rounded.Notifications, SettingsColors.Red),
+    Privacy("Конфиденциальность", "Шифрование, сеансы, пароль", Icons.Rounded.Security, SettingsColors.Green),
+    Data("Данные и память", "Автозагрузка, кэш", Icons.Rounded.Storage, SettingsColors.Teal),
+    Server("Сервер", "Адрес вашего сервера RyzikChat", Icons.Rounded.Dns, SettingsColors.Orange),
+    Api("Открытый API", "Для своих приложений и других устройств", Icons.Rounded.Code, SettingsColors.Slate),
+    Updates("Обновления", "Новые версии приходят прямо в приложение", Icons.Rounded.SystemUpdate, SettingsColors.Cyan),
+    About("О приложении", "Версия, правила", Icons.Rounded.Info, SettingsColors.Gray),
 }
+
+/** Пункт главного экрана настроек: для сетки, списка и поиска. */
+private class SettingsEntry(val key: String, val icon: ImageVector, val color: Color, val title: String, val subtitle: String, val onClick: () -> Unit)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -128,6 +142,7 @@ fun SettingsScreen(
     onOpenSaved: () -> Unit,
     onOpenPremium: () -> Unit,
     onOpenProfileLook: () -> Unit = {},
+    onOpenProfile: () -> Unit = {},
 ) {
     val repo = RyzikApp.instance.repo
     val auth by repo.auth.collectAsState()
@@ -139,6 +154,8 @@ fun SettingsScreen(
     var bio by remember { mutableStateOf("") }
     var confirmLogout by remember { mutableStateOf(false) }
     var uploading by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    var accountsOpen by remember { mutableStateOf(false) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
@@ -150,136 +167,193 @@ fun SettingsScreen(
         }
     }
 
-    val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    Scaffold(
-        modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
-        topBar = {
-            LargeTopAppBar(
-                title = { Text("Настройки") },
-                navigationIcon = { if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
-                scrollBehavior = scroll,
-            )
-        },
-    ) { padding ->
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = padding) {
-            // Во вкладке «Настройки» профиль не дублируем: он на соседней вкладке «Профиль».
-            if (onBack != null) item {
+    fun section(s: SettingsSection) = SettingsEntry(s.name, s.icon, s.color, s.title, s.subtitle) { onOpenSection(s) }
+    val tiles = listOf(
+        section(SettingsSection.Appearance),
+        section(SettingsSection.Chats),
+        section(SettingsSection.Notifications),
+        section(SettingsSection.Privacy),
+        SettingsEntry("saved", Icons.Rounded.Bookmark, SettingsColors.Yellow, "Избранное", "Сохранённые сообщения", onOpenSaved),
+        SettingsEntry("look", Icons.Rounded.AutoAwesome, SettingsColors.Pink, "Профиль", "Статус, цвет шапки, рамка", onOpenProfileLook),
+    )
+    val rows = buildList {
+        if (me.isAdmin) add(SettingsEntry("admin", Icons.Rounded.AdminPanelSettings, SettingsColors.Indigo, "Админ-панель", "Бейджи и права пользователей", onOpenAdmin))
+        add(section(SettingsSection.Data))
+        add(section(SettingsSection.Updates))
+        add(section(SettingsSection.Server))
+        add(section(SettingsSection.Api))
+        add(section(SettingsSection.About))
+    }
+    val premiumEntry = SettingsEntry("premium", Icons.Rounded.Star, SettingsColors.Purple, "RyzikChat Премиум", if (me.isPremium) "Активен" else "Звезда у имени, файлы до 2 ГБ и не только", onOpenPremium)
+    val found = if (query.isBlank()) emptyList() else (tiles + premiumEntry + rows).filter {
+        it.title.contains(query.trim(), ignoreCase = true) || it.subtitle.contains(query.trim(), ignoreCase = true)
+    }
+
+    Scaffold { padding ->
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 24.dp)) {
+            item(key = "head") {
+                Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (onBack != null) {
+                        app.ryzik.chat.ui.chats.RoundButton(Icons.AutoMirrored.Rounded.ArrowBack, "Назад", onClick = onBack)
+                        Spacer(Modifier.width(12.dp))
+                    }
+                    Text("Настройки", style = MaterialTheme.typography.headlineMedium)
+                }
+                app.ryzik.chat.ui.chats.SearchPill(
+                    query = query,
+                    onQuery = { query = it },
+                    placeholder = "Поиск настроек",
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                )
+            }
+            if (query.isNotBlank()) {
+                items(found.size, key = { "f_" + found[it].key }) { i ->
+                    val e = found[i]
+                    Box(Modifier.animateItem()) { SettingsCard(e.icon, e.color, e.title, e.subtitle, e.onClick) }
+                }
+                if (found.isEmpty()) item(key = "nothing") {
+                    Text("Ничего не нашлось", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(24.dp))
+                }
+                return@LazyColumn
+            }
+            item(key = "profile") {
                 Surface(
                     shape = RoundedCornerShape(28.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 ) {
-                    Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box {
-                            Avatar(me.displayName, repo.avatarUrl(me.avatarFileId), 96.dp)
-                            Box(
-                                Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .size(32.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary)
-                                    .clickable { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                                contentAlignment = Alignment.Center,
+                    Row(Modifier.clickable(onClick = onOpenProfile).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.clip(app.ryzik.chat.ui.components.AvatarShape).clickable { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
+                            Avatar(me.displayName, repo.avatarUrl(me.avatarFileId), 64.dp)
+                            if (uploading) Box(Modifier.size(64.dp).background(Color.Black.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
+                                androidx.compose.material3.CircularProgressIndicator(Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
+                            }
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(me.displayName, style = MaterialTheme.typography.titleLarge, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+                                if (me.isPremium) {
+                                    Spacer(Modifier.width(4.dp))
+                                    if (!me.emojiStatus.isNullOrBlank()) app.ryzik.chat.ui.premium.EmojiStatus(me.emojiStatus!!, 20.sp)
+                                    else app.ryzik.chat.ui.components.PremiumStar(20.dp)
+                                }
+                            }
+                            Text("@${me.username}", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
+                        }
+                        Box(
+                            Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                                .clickable { name = me.displayName; bio = me.bio; editing = true },
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(Icons.Rounded.Edit, "Изменить", Modifier.size(20.dp)) }
+                    }
+                }
+            }
+            item(key = "accounts") {
+                val arrow by androidx.compose.animation.core.animateFloatAsState(if (accountsOpen) 180f else 0f, label = "arrow")
+                Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).animateContentSize(),
+                ) {
+                    Column {
+                        Row(Modifier.clickable { accountsOpen = !accountsOpen }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            RoundIcon(Icons.Rounded.SwitchAccount, SettingsColors.Blue, 42.dp)
+                            Spacer(Modifier.width(14.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("Аккаунты", style = MaterialTheme.typography.titleMedium)
+                                Text("${accounts.size} из ${app.ryzik.chat.data.MAX_ACCOUNTS} · переключение в одно касание", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Icon(Icons.Rounded.KeyboardArrowDown, null, Modifier.graphicsLayer { rotationZ = arrow }, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (accountsOpen) {
+                            accounts.forEach { acc ->
+                                val current = acc.userId == me.id
+                                Row(
+                                    Modifier.fillMaxWidth().clickable(enabled = !current) { repo.switchAccount(acc) }.padding(horizontal = 14.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Avatar(acc.displayName.ifBlank { acc.username }, repo.avatarUrl(acc.avatarFileId)?.takeIf { current }, 42.dp)
+                                    Spacer(Modifier.width(14.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(acc.displayName.ifBlank { acc.username }, style = MaterialTheme.typography.bodyLarge)
+                                        Text("@${acc.username}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    if (current) Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                            if (accounts.size < app.ryzik.chat.data.MAX_ACCOUNTS) Row(
+                                Modifier.fillMaxWidth().clickable { repo.beginAddAccount() }.padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                if (uploading) androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-                                else Icon(Icons.Default.CameraAlt, "Сменить фото", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                                Box(Modifier.size(42.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Rounded.PersonAdd, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                                }
+                                Spacer(Modifier.width(14.dp))
+                                Text("Добавить аккаунт", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyLarge)
                             }
-                        }
-                        Spacer(Modifier.height(12.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(me.displayName, style = MaterialTheme.typography.headlineSmall)
-                            if (me.isPremium) {
-                                if (!me.emojiStatus.isNullOrBlank()) app.ryzik.chat.ui.premium.EmojiStatus(me.emojiStatus!!, 22.sp)
-                                else app.ryzik.chat.ui.components.PremiumStar(22.dp)
-                            }
-                            IconButton(onClick = { name = me.displayName; bio = me.bio; editing = true }) {
-                                Icon(Icons.Default.Edit, "Изменить", Modifier.size(20.dp))
-                            }
-                        }
-                        Text("@${me.username}", color = MaterialTheme.colorScheme.primary)
-                        if (me.bio.isNotBlank()) {
                             Spacer(Modifier.height(6.dp))
-                            Text(me.bio, style = MaterialTheme.typography.bodyMedium)
-                        }
-                        if (me.badges.isNotEmpty() || me.isAdmin) {
-                            Spacer(Modifier.height(12.dp))
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                if (me.isAdmin) item { BadgeChip(app.ryzik.chat.data.Badge("admin", "🛡️", "Администратор")) }
-                                items(me.badges.size) { BadgeChip(me.badges[it]) }
-                            }
                         }
                     }
                 }
             }
-            item(key = "accounts_header") {
-                Text("Аккаунты", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp))
-            }
-            items(accounts.size, key = { "acc_" + accounts[it].userId }) { i ->
-                val acc = accounts[i]
-                val current = acc.userId == me.id
-                ListItem(
-                    headlineContent = { Text(acc.displayName.ifBlank { acc.username }) },
-                    supportingContent = { Text("@${acc.username}" + if (current) " · сейчас" else "") },
-                    leadingContent = { Avatar(acc.displayName.ifBlank { acc.username }, repo.avatarUrl(acc.avatarFileId)?.takeIf { current }, 40.dp) },
-                    trailingContent = { if (current) Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary) },
-                    modifier = Modifier.animateItem().clickable(enabled = !current) { repo.switchAccount(acc) },
-                )
-            }
-            if (accounts.size < app.ryzik.chat.data.MAX_ACCOUNTS) item(key = "add_account") {
-                ListItem(
-                    headlineContent = { Text("Добавить аккаунт", color = MaterialTheme.colorScheme.primary) },
-                    supportingContent = { Text("До ${app.ryzik.chat.data.MAX_ACCOUNTS} аккаунтов, переключение в одно касание") },
-                    leadingContent = {
-                        Box(Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.PersonAdd, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+            item(key = "grid") {
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    tiles.chunked(2).forEach { pair ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            pair.forEach { e -> SettingsTile(e.icon, e.color, e.title, e.subtitle, e.onClick, Modifier.weight(1f)) }
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
                         }
-                    },
-                    modifier = Modifier.clickable { repo.beginAddAccount() },
+                    }
+                }
+            }
+            item(key = "premium") {
+                Box(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+                        .clip(RoundedCornerShape(28.dp))
+                        .background(Brush.linearGradient(app.ryzik.chat.ui.components.PremiumGradient))
+                        .clickable(onClick = onOpenPremium)
+                        .padding(18.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.25f)), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Rounded.Star, null, tint = Color.White)
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(premiumEntry.title, style = MaterialTheme.typography.titleMedium, color = Color.White)
+                            Text(premiumEntry.subtitle, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.85f))
+                        }
+                        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = Color.White)
+                    }
+                }
+            }
+            items(rows.size, key = { "r_" + rows[it].key }) { i ->
+                val e = rows[i]
+                val trailing: (@Composable () -> Unit)? = if (e.key == SettingsSection.Updates.name) {
+                    { UpdateBadge() }
+                } else null
+                SettingsCard(e.icon, e.color, e.title, e.subtitle, e.onClick, trailing)
+            }
+            item(key = "logout") {
+                Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    Row(Modifier.clickable { confirmLogout = true }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        RoundIcon(Icons.AutoMirrored.Rounded.Logout, MaterialTheme.colorScheme.error, 42.dp)
+                        Spacer(Modifier.width(14.dp))
+                        Text("Выйти", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+                Text(
+                    "RyzikChat ${BuildConfig.VERSION_NAME}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 )
-            }
-            item {
-                SettingsRow(Icons.Default.Bookmark, "Избранное", "Ваши сохранённые сообщения", onOpenSaved)
-            }
-            item {
-                ListItem(
-                    headlineContent = { Text("RyzikChat Премиум") },
-                    supportingContent = { Text(if (me.isPremium) "Активен ✨" else "Звезда у имени, файлы до 2 ГБ и не только") },
-                    leadingContent = {
-                        Box(
-                            Modifier.size(40.dp).clip(CircleShape).background(Brush.linearGradient(app.ryzik.chat.ui.components.PremiumGradient)),
-                            contentAlignment = Alignment.Center,
-                        ) { Icon(Icons.Default.Star, null, tint = Color.White) }
-                    },
-                    modifier = Modifier.clickable(onClick = onOpenPremium),
-                )
-            }
-            item {
-                ListItem(
-                    headlineContent = { Text("Оформление профиля") },
-                    supportingContent = { Text("Эмодзи-статус, цвет и узор шапки, рамка аватарки, шрифт имени") },
-                    leadingContent = {
-                        Box(
-                            Modifier.size(40.dp).clip(CircleShape).background(Brush.linearGradient(app.ryzik.chat.ui.components.PremiumGradient)),
-                            contentAlignment = Alignment.Center,
-                        ) { Text(me.emojiStatus?.takeIf { me.isPremium && it.isNotBlank() } ?: "🎨", fontSize = 20.sp) }
-                    },
-                    trailingContent = { if (!me.isPremium) app.ryzik.chat.ui.components.PremiumStar(18.dp) },
-                    modifier = Modifier.clickable(onClick = onOpenProfileLook),
-                )
-            }
-            if (me.isAdmin) item {
-                SettingsRow(Icons.Default.AdminPanelSettings, "Админ-панель", "Бейджи и права пользователей", onOpenAdmin, accent = true)
-            }
-            SettingsSection.entries.forEach { s ->
-                item(key = s.name) { SettingsRow(s.icon, s.title, s.subtitle, { onOpenSection(s) }) }
-            }
-            item {
-                ListItem(
-                    headlineContent = { Text("Выйти", color = MaterialTheme.colorScheme.error) },
-                    leadingContent = { Icon(Icons.AutoMirrored.Filled.Logout, null, tint = MaterialTheme.colorScheme.error) },
-                    modifier = Modifier.clickable { confirmLogout = true },
-                )
-                Spacer(Modifier.height(32.dp))
             }
         }
     }
@@ -290,9 +364,9 @@ fun SettingsScreen(
             title = { Text("Профиль") },
             text = {
                 Column {
-                    OutlinedTextField(name, { name = it.take(64) }, label = { Text("Имя") }, singleLine = true)
+                    OutlinedTextField(name, { name = it.take(64) }, label = { Text("Имя") }, singleLine = true, shape = RoundedCornerShape(16.dp))
                     Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(bio, { bio = it.take(300) }, label = { Text("О себе") }, maxLines = 4)
+                    OutlinedTextField(bio, { bio = it.take(300) }, label = { Text("О себе") }, maxLines = 4, shape = RoundedCornerShape(16.dp))
                 }
             },
             confirmButton = {
@@ -315,22 +389,18 @@ fun SettingsScreen(
     }
 }
 
+/** Точка «есть новая версия» у пункта «Обновления». */
 @Composable
-private fun SettingsRow(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit, accent: Boolean = false) {
-    ListItem(
-        headlineContent = { Text(title) },
-        supportingContent = { Text(subtitle) },
-        leadingContent = {
-            Box(
-                Modifier.size(40.dp).clip(CircleShape)
-                    .background(if (accent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(icon, null, tint = if (accent) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer)
-            }
-        },
-        modifier = Modifier.clickable(onClick = onClick),
-    )
+private fun UpdateBadge() {
+    val state by Updater.state.collectAsState()
+    if (state is UpdateState.Available || state is UpdateState.Ready) {
+        Text(
+            "Новая",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onPrimary,
+            modifier = Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.primary).padding(horizontal = 8.dp, vertical = 3.dp),
+        )
+    } else Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 // ===================== Разделы =====================
@@ -350,7 +420,7 @@ fun SettingsSectionScreen(section: SettingsSection, onBack: () -> Unit, onOpenTe
         topBar = {
             LargeTopAppBar(
                 title = { Text(section.title) },
-                navigationIcon = { if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
+                navigationIcon = { if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") } },
                 scrollBehavior = scroll,
             )
         },
@@ -364,6 +434,7 @@ fun SettingsSectionScreen(section: SettingsSection, onBack: () -> Unit, onOpenTe
                 SettingsSection.Data -> DataSettings(settings, ::update)
                 SettingsSection.Server -> ServerSettings()
                 SettingsSection.Api -> ApiSettings()
+                SettingsSection.Updates -> UpdatesSettings()
                 SettingsSection.About -> AboutSettings(onOpenTerms)
             }
             Spacer(Modifier.height(32.dp))
@@ -373,7 +444,7 @@ fun SettingsSectionScreen(section: SettingsSection, onBack: () -> Unit, onOpenTe
 
 @Composable
 private fun Header(text: String) {
-    Text(text, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp))
+    Text(text, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 28.dp, top = 20.dp, bottom = 6.dp))
 }
 
 @Composable
@@ -429,8 +500,8 @@ private fun AppearanceSettings(s: AppSettings, update: ((AppSettings) -> AppSett
                                     },
                                 contentAlignment = Alignment.Center,
                             ) {
-                                if (selected) Icon(Icons.Default.Check, null, tint = Color.White)
-                                else if (i >= PREMIUM_SEEDS_FROM) Icon(if (premium) Icons.Default.Star else Icons.Default.Lock, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                if (selected) Icon(Icons.Rounded.Check, null, tint = Color.White)
+                                else if (i >= PREMIUM_SEEDS_FROM) Icon(if (premium) Icons.Rounded.Star else Icons.Rounded.Lock, null, tint = Color.White, modifier = Modifier.size(18.dp))
                             }
                         }
                         Text(name, style = MaterialTheme.typography.labelSmall)
@@ -485,11 +556,11 @@ private fun AppearanceSettings(s: AppSettings, update: ((AppSettings) -> AppSett
     ) {
         Column(Modifier.fillMaxWidth()) {
             Surface(shape = RoundedCornerShape(s.bubbleRadius.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-                Text("Привет! Как тебе новая тема? 🎨", Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontSize = s.textSize.sp)
+                Text("Привет! Как тебе новая тема?", Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontSize = s.textSize.sp)
             }
             Spacer(Modifier.height(6.dp))
             Surface(shape = RoundedCornerShape(s.bubbleRadius.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.align(Alignment.End)) {
-                Text("Огонь! 🔥", Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontSize = s.textSize.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text("Отлично смотрится", Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontSize = s.textSize.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
             }
         }
     }
@@ -552,9 +623,9 @@ private fun NotificationSettings(s: AppSettings, update: ((AppSettings) -> AppSe
     ListItem(
         headlineContent = { Text("Не ограничивать в фоне") },
         supportingContent = {
-            Text(if (ignoring) "✅ Батарея не мешает получать сообщения" else "Нажмите и разрешите — иначе телефон может «усыплять» RyzikChat и уведомления будут опаздывать")
+            Text(if (ignoring) "Батарея не мешает получать сообщения" else "Нажмите и разрешите — иначе телефон может «усыплять» RyzikChat и уведомления будут опаздывать")
         },
-        leadingContent = { Icon(Icons.Default.BatteryChargingFull, null) },
+        leadingContent = { Icon(Icons.Rounded.BatteryChargingFull, null) },
         modifier = Modifier.clickable(enabled = !ignoring) {
             runCatching {
                 context.startActivity(
@@ -567,7 +638,7 @@ private fun NotificationSettings(s: AppSettings, update: ((AppSettings) -> AppSe
     ListItem(
         headlineContent = { Text("Системные настройки уведомлений") },
         supportingContent = { Text("Звук, всплывающие окна, значок на иконке") },
-        leadingContent = { Icon(Icons.Default.Settings, null) },
+        leadingContent = { Icon(Icons.Rounded.Settings, null) },
         modifier = Modifier.clickable {
             runCatching {
                 context.startActivity(
@@ -604,7 +675,7 @@ private fun PrivacySettings(s: AppSettings, update: ((AppSettings) -> AppSetting
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
     ) {
         Column(Modifier.padding(16.dp)) {
-            Text("🔒 Все сообщения, фото, видео и файлы шифруются на вашем телефоне. Сервер хранит только шифротекст.")
+            Text("Все сообщения, фото, видео и файлы шифруются на вашем телефоне. Сервер хранит только шифротекст.")
             Spacer(Modifier.height(12.dp))
             Text("Ваш отпечаток ключа:", style = MaterialTheme.typography.labelLarge)
             Text(repo.myFingerprint(), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
@@ -629,6 +700,8 @@ private fun PrivacySettings(s: AppSettings, update: ((AppSettings) -> AppSetting
             }
         }, modifier = Modifier.padding(horizontal = 8.dp)) { Text("Завершить другие сеансы", color = MaterialTheme.colorScheme.error) }
     }
+    Header("Двухэтапная проверка")
+    TwoFactorSection()
     Header("Пароль")
     ListItem(
         headlineContent = { Text("Сменить пароль") },
@@ -678,7 +751,7 @@ private fun DataSettings(s: AppSettings, update: ((AppSettings) -> AppSettings) 
     ListItem(
         headlineContent = { Text("Очистить кэш") },
         supportingContent = { Text("Сейчас занято: ${formatSize(size)}. Файлы можно будет скачать снова.") },
-        leadingContent = { Icon(Icons.Default.Storage, null) },
+        leadingContent = { Icon(Icons.Rounded.Storage, null) },
         modifier = Modifier.clickable { repo.clearCache(); size = repo.cacheSize() },
     )
 }
@@ -703,7 +776,7 @@ private fun ServerSettings() {
                 scope.launch {
                     val old = repo.api.baseUrl
                     repo.api.baseUrl = url.trimEnd('/')
-                    status = if (repo.checkServer()) "✅ Сервер отвечает" else "❌ Сервер не отвечает"
+                    status = if (repo.checkServer()) "Сервер отвечает" else "Сервер не отвечает"
                     repo.api.baseUrl = old
                 }
             }) { Text("Проверить") }
@@ -733,13 +806,13 @@ private fun ApiSettings() {
     ListItem(
         headlineContent = { Text("Документация API") },
         supportingContent = { Text("$base/api/docs") },
-        leadingContent = { Icon(Icons.Default.Description, null) },
+        leadingContent = { Icon(Icons.Rounded.Description, null) },
         modifier = Modifier.clickable { open("$base/api/docs") },
     )
     ListItem(
         headlineContent = { Text("Спецификация OpenAPI (JSON)") },
         supportingContent = { Text("$base/api/openapi.json") },
-        leadingContent = { Icon(Icons.Default.Code, null) },
+        leadingContent = { Icon(Icons.Rounded.Code, null) },
         modifier = Modifier.clickable { open("$base/api/openapi.json") },
     )
     Header("Как подключиться")
@@ -755,7 +828,7 @@ private fun ApiSettings() {
     ListItem(
         headlineContent = { Text(if (showToken) (repo.api.token ?: "—") else "Показать токен") },
         supportingContent = { Text("Никому не передавайте: с ним можно читать ваши чаты от вашего имени") },
-        leadingContent = { Icon(Icons.Default.Lock, null) },
+        leadingContent = { Icon(Icons.Rounded.Lock, null) },
         modifier = Modifier.clickable { showToken = !showToken },
     )
 }
@@ -763,7 +836,8 @@ private fun ApiSettings() {
 @Composable
 private fun AboutSettings(onOpenTerms: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("🦊", fontSize = 64.sp)
+        app.ryzik.chat.ui.components.EmptyIcon(Icons.Rounded.Forum)
+        Spacer(Modifier.height(12.dp))
         Text("RyzikChat", style = MaterialTheme.typography.headlineMedium)
         Text("Версия ${BuildConfig.VERSION_NAME}", color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(12.dp))
@@ -771,7 +845,55 @@ private fun AboutSettings(onOpenTerms: () -> Unit) {
     }
     ListItem(
         headlineContent = { Text("Правила использования") },
-        leadingContent = { Icon(Icons.Default.Description, null) },
+        leadingContent = { Icon(Icons.Rounded.Description, null) },
         modifier = Modifier.clickable(onClick = onOpenTerms),
+    )
+}
+
+@Composable
+private fun UpdatesSettings() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    val state by Updater.state.collectAsState()
+    Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        app.ryzik.chat.ui.components.EmptyIcon(Icons.Rounded.SystemUpdate)
+        Spacer(Modifier.height(12.dp))
+        Text("Версия ${Updater.currentVersionName(context)}", style = MaterialTheme.typography.titleLarge)
+        Text(
+            when (val st = state) {
+                UpdateState.Checking -> "Проверяем…"
+                UpdateState.UpToDate -> "У вас последняя версия"
+                is UpdateState.Available -> "Доступна версия ${st.info.versionName}"
+                is UpdateState.Downloading -> "Загрузка ${(st.progress * 100).toInt()}%"
+                is UpdateState.Ready -> "Версия ${st.info.versionName} скачана"
+                is UpdateState.Failed -> st.message
+                UpdateState.Idle -> "Приложение само проверяет обновления при запуске"
+            },
+            color = if (state is UpdateState.Failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        (state as? UpdateState.Downloading)?.let { d ->
+            Spacer(Modifier.height(12.dp))
+            androidx.compose.material3.LinearProgressIndicator(progress = { d.progress }, modifier = Modifier.fillMaxWidth().clip(CircleShape))
+        }
+        (state as? UpdateState.Available)?.info?.notes?.takeIf { it.isNotBlank() }?.let { notes ->
+            Spacer(Modifier.height(12.dp))
+            Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
+                Text(notes, Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        when (val st = state) {
+            is UpdateState.Available -> androidx.compose.material3.Button(onClick = { scope.launch { Updater.download(context, st.info) } }) { Text("Скачать и установить") }
+            is UpdateState.Ready -> androidx.compose.material3.Button(onClick = { Updater.install(context) }) { Text("Установить") }
+            is UpdateState.Downloading, UpdateState.Checking -> {}
+            else -> androidx.compose.material3.FilledTonalButton(onClick = { scope.launch { Updater.check(context, silent = false) } }) { Text("Проверить обновления") }
+        }
+    }
+    Text(
+        "Новые сборки скачиваются с GitHub проекта RyzikChat. Android попросит разрешить установку из этого приложения — это нужно один раз.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 24.dp),
     )
 }

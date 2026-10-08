@@ -13,17 +13,30 @@ android {
         applicationId = "app.ryzik.chat"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.5.1"
+        versionCode = 10
+        versionName = "0.6.0"
         // Адрес сервера по умолчанию: 10.0.2.2 — это компьютер, на котором запущен эмулятор.
         buildConfigField("String", "DEFAULT_SERVER", "\"http://10.0.2.2:8080\"")
+    }
+
+    // Один и тот же ключ для всех сборок: без этого обновление поверх старой версии невозможно.
+    // Пароли можно переопределить переменными окружения RYZIK_STORE_PASSWORD / RYZIK_KEY_PASSWORD.
+    signingConfigs {
+        create("ryzik") {
+            storeFile = file(System.getenv("RYZIK_KEYSTORE") ?: "ryzik-release.jks")
+            storePassword = System.getenv("RYZIK_STORE_PASSWORD") ?: "ryzikchat"
+            keyAlias = "ryzik"
+            keyPassword = System.getenv("RYZIK_KEY_PASSWORD") ?: "ryzikchat"
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Подпись debug-ключом, чтобы релизный APK можно было сразу поставить на телефон.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("ryzik")
+        }
+        debug {
+            signingConfig = signingConfigs.getByName("ryzik")
         }
     }
     compileOptions {

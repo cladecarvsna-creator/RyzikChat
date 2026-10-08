@@ -41,7 +41,7 @@ function verifyPassword(password, stored) {
  * Создаёт express-приложение. `hub` — объект с методами sendToUsers / isOnline
  * (реализован в realtime.js), через него REST-запросы рассылают события по WebSocket.
  */
-export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
+export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource = null }) {
   const filesDir = path.join(dataDir, 'files');
   fs.mkdirSync(filesDir, { recursive: true });
 
@@ -133,6 +133,8 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
       title: chat.title,
       description: chat.description ?? '',
       avatarFileId: chat.avatar_file_id ?? null,
+      // Обои чата из фото: их видят все участники.
+      wallpaperFileId: chat.wallpaper_file_id ?? null,
       isPublic: !!chat.is_public,
       // Служебный чат RyzikChat Info: сюда приходят коды входа.
       isService: chat.created_by === SYSTEM_ID,
@@ -193,23 +195,6 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
   // ---------- служебный чат, коды, блокировка ----------
 
   const CODE_TTL_MS = 10 * 60_000;
-  const hashCode = (code) => crypto.createHash('sha256').update(code).digest('hex');
-
-  /** Проверяет код подтверждения. Пять неверных попыток — и код сгорает. */
-  function checkCode(id, kind, code, userId = null) {
-    const row = db.prepare('SELECT * FROM codes WHERE id = ? AND kind = ?').get(id, kind);
-    if (!row || (userId && row.user_id !== userId) || row.expires_at < now() || row.attempts >= 5) {
-      if (row) db.prepare('DELETE FROM codes WHERE id = ?').run(id);
-      throw new HttpError(400, 'code_expired', 'Код устарел. Запросите новый');
-    }
-    if (hashCode(code.trim()) !== row.code_hash) {
-      db.prepare('UPDATE codes SET attempts = attempts + 1 WHERE id = ?').run(id);
-      throw new HttpError(400, 'bad_code', 'Неверный код');
-    }
-    db.prepare('DELETE FROM codes WHERE id = ?').run(id);
-    return row;
-  }
-
   // Системный пользователь, от имени которого пишет RyzikChat Info. Войти под ним нельзя.
   if (!getUserRow.get(SYSTEM_ID)) {
     db.prepare(`INSERT INTO users (id, username, display_name, password_hash, bio, public_key, encrypted_private_key, created_at)
@@ -292,7 +277,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
     return token;
   }
 
-  app.get('/api/health', (_req, res) => res.json({ ok: true, name: 'RyzikChat', version: '0.5.1', apiVersion: 1 }));
+  app.get('/api/health', (_req, res) => res.json({ ok: true, name: 'RyzikChat', version: '0.6.0', apiVersion: 1 }));
 
   // Открытое описание API — чтобы можно было написать клиент под любое устройство.
   app.get('/api/openapi.json', (_req, res) => res.sendFile(path.join(import.meta.dirname, '..', 'openapi.json')));
@@ -322,7 +307,8 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
       ensureInfoChat(id);
       return { id, token: createSession(id, device) };
     });
-    postInfo(result.id, `Добро пожаловать в RyzikChat! 👋\n\nЭто служебный чат. Сюда будут приходить коды для входа с новых устройств. Никому их не сообщайте.`);
+    postInfo(result.id, `Добро пожаловать в RyzikChat!\n\nЭто служебный чат. Сюда приходят уведомления о входах в аккаунт и важные новости. ` +
+      'Для защиты включите двухэтапную проверку в настройках конфиденциальности.');
     res.status(201).json({ token: result.token, user: getUser(result.id), encryptedPrivateKey });
   });
 
@@ -332,35 +318,92 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
     if (!row || typeof password !== 'string' || !verifyPassword(password, row.password_hash)) {
       throw new HttpError(401, 'bad_credentials', 'Неверное имя пользователя или пароль');
     }
-    const sessions = db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE user_id = ?').get(row.id).n;
-    // Если аккаунт уже открыт на другом устройстве — нужен код из чата «RyzikChat Info».
-    if (sessions > 0) {
-      const code = String(crypto.randomInt(100000, 1000000));
+    // Включена двухэтапная проверка — после пароля от аккаунта спрашиваем дополнительный пароль.
+    if (row.twofa_hash) {
       const id = newId();
       db.prepare('INSERT INTO codes (id, user_id, kind, code_hash, data, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(id, row.id, 'login', hashCode(code), String(device ?? '').slice(0, 100), now() + CODE_TTL_MS);
-      ensureInfoChat(row.id);
-      postInfo(row.id, `Код для входа в RyzikChat: ${code}\n\nКто-то входит в ваш аккаунт с устройства «${String(device || 'неизвестно').slice(0, 60)}». ` +
-        'Никому не сообщайте этот код. Если это не вы, смените пароль в настройках.');
-      return res.json({ needCode: true, challengeId: id, sentTo: ['chat'] });
+        .run(id, row.id, '2fa', '', String(device ?? '').slice(0, 100), now() + CODE_TTL_MS);
+      return res.json({ need2fa: true, challengeId: id, hint: row.twofa_hint ?? '' });
     }
-    const token = createSession(row.id, device);
-    res.json({ token, user: publicUser(row), encryptedPrivateKey: row.encrypted_private_key });
+    res.json(finishLogin(row, device));
   });
 
-  app.post('/api/auth/login/confirm', (req, res) => {
-    const { challengeId, code } = req.body ?? {};
-    const row = checkCode(String(challengeId ?? ''), 'login', String(code ?? ''));
-    const user = getUserRow.get(row.user_id);
-    const token = createSession(user.id, row.data);
-    res.json({ token, user: publicUser(user), encryptedPrivateKey: user.encrypted_private_key });
+  app.post('/api/auth/login/2fa', (req, res) => {
+    const { challengeId, password } = req.body ?? {};
+    const id = String(challengeId ?? '');
+    const ch = db.prepare("SELECT * FROM codes WHERE id = ? AND kind = '2fa'").get(id);
+    if (!ch || ch.expires_at < now() || ch.attempts >= 5) {
+      if (ch) db.prepare('DELETE FROM codes WHERE id = ?').run(id);
+      throw new HttpError(400, 'code_expired', 'Время вышло. Войдите заново');
+    }
+    const user = getUserRow.get(ch.user_id);
+    if (!user?.twofa_hash || !verifyPassword(String(password ?? ''), user.twofa_hash)) {
+      db.prepare('UPDATE codes SET attempts = attempts + 1 WHERE id = ?').run(id);
+      throw new HttpError(400, 'bad_2fa', 'Неверный пароль двухэтапной проверки');
+    }
+    db.prepare('DELETE FROM codes WHERE id = ?').run(id);
+    res.json(finishLogin(user, ch.data));
   });
+
+  /** Создаёт сеанс и сообщает в RyzikChat Info о входе с нового устройства. */
+  function finishLogin(row, device) {
+    const token = createSession(row.id, device);
+    postInfo(row.id, `Новый вход в ваш аккаунт с устройства «${String(device || 'неизвестно').slice(0, 60)}». ` +
+      'Если это были не вы, завершите чужие сеансы и смените пароль в настройках конфиденциальности.');
+    return { token, user: publicUser(row), encryptedPrivateKey: row.encrypted_private_key };
+  }
+
+  // ---------- обновления приложения ----------
+  // Телефоны скачивают новые версии с этого сервера, а не с GitHub. Сервер сам забирает свежую
+  // сборку из updateSource (по умолчанию — релиз RyzikChat на GitHub), либо администратор
+  // загружает APK вручную через /api/admin/app.
+  const updatesDir = path.join(dataDir, 'updates');
+  fs.mkdirSync(updatesDir, { recursive: true });
+  const updateInfoPath = path.join(updatesDir, 'update.json');
+  const apkPath = path.join(updatesDir, 'RyzikChat.apk');
+  const readUpdateInfo = () => {
+    try { return JSON.parse(fs.readFileSync(updateInfoPath, 'utf8')); } catch { return null; }
+  };
+  function saveUpdate(tmpApk, { versionCode, versionName, notes }) {
+    fs.renameSync(tmpApk, apkPath);
+    const info = { versionCode: Number(versionCode), versionName: String(versionName).slice(0, 32), notes: String(notes ?? '').slice(0, 2000), size: fs.statSync(apkPath).size };
+    fs.writeFileSync(updateInfoPath, JSON.stringify(info));
+    return info;
+  }
+
+  app.get('/api/app/update', (_req, res) => {
+    const info = readUpdateInfo();
+    if (!info || !fs.existsSync(apkPath)) throw new HttpError(404, 'no_update', 'На сервере нет сборки приложения');
+    res.set('Cache-Control', 'no-cache');
+    res.json({ ...info, apk: '/api/app/apk' });
+  });
+
+  app.get('/api/app/apk', (_req, res) => {
+    if (!fs.existsSync(apkPath)) throw new HttpError(404, 'no_update', 'На сервере нет сборки приложения');
+    res.set('Cache-Control', 'no-cache');
+    res.download(apkPath, 'RyzikChat.apk');
+  });
+
+  /** Забирает свежую сборку из updateSource, если там версия новее. */
+  async function syncUpdate() {
+    if (!updateSource) return null;
+    const remote = await (await fetch(`${updateSource}/update.json`, { cache: 'no-store' })).json();
+    if (!Number.isInteger(remote?.versionCode)) throw new Error('update.json без versionCode');
+    if ((readUpdateInfo()?.versionCode ?? 0) >= remote.versionCode && fs.existsSync(apkPath)) return null;
+    const resp = await fetch(`${updateSource}/RyzikChat.apk`);
+    if (!resp.ok) throw new Error(`APK: HTTP ${resp.status}`);
+    const tmp = path.join(updatesDir, `download-${newId()}.apk`);
+    fs.writeFileSync(tmp, Buffer.from(await resp.arrayBuffer()));
+    return saveUpdate(tmp, remote);
+  }
+  app.locals.syncUpdate = syncUpdate;
 
   // Аватарки и обложки профилей видны всем (как имя), поэтому отдаём их без токена:
   // так их может загрузить любой загрузчик картинок. Другие файлы — только после входа.
   app.get('/api/avatars/:id', (req, res) => {
     const id = String(req.params.id);
-    const used = db.prepare('SELECT 1 FROM users WHERE avatar_file_id = ? UNION ALL SELECT 1 FROM chats WHERE avatar_file_id = ? LIMIT 1').get(id, id) ||
+    const used = db.prepare(`SELECT 1 FROM users WHERE avatar_file_id = ? UNION ALL SELECT 1 FROM chats WHERE avatar_file_id = ? OR wallpaper_file_id = ?
+      UNION ALL SELECT 1 FROM stickers WHERE file_id = ? LIMIT 1`).get(id, id, id, id) ||
       db.prepare("SELECT 1 FROM users WHERE profile_style LIKE ? LIMIT 1").get(`%"${id.replace(/[%_"]/g, '')}"%`);
     const row = used && db.prepare('SELECT * FROM files WHERE id = ?').get(id);
     if (!row) throw new HttpError(404, 'file_not_found', 'Файл не найден');
@@ -396,8 +439,37 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
 
   const meView = (id) => {
     const row = getUserRow.get(id);
-    return publicUser(row);
+    return { ...publicUser(row), has2fa: !!row?.twofa_hash, twofaHint: row?.twofa_hint ?? '' };
   };
+
+  // Двухэтапная проверка: дополнительный пароль при входе на новом устройстве.
+  app.put('/api/me/2fa', (req, res) => {
+    const { accountPassword, currentPassword, password, hint } = req.body ?? {};
+    const row = getUserRow.get(req.userId);
+    if (!verifyPassword(String(accountPassword ?? ''), row.password_hash)) {
+      throw new HttpError(403, 'bad_password', 'Неверный пароль от аккаунта');
+    }
+    if (row.twofa_hash && !verifyPassword(String(currentPassword ?? ''), row.twofa_hash)) {
+      throw new HttpError(403, 'bad_2fa', 'Неверный текущий пароль двухэтапной проверки');
+    }
+    if (typeof password !== 'string' || password.length < 4 || password.length > 128) {
+      throw new HttpError(400, 'bad_2fa_password', 'Пароль двухэтапной проверки: от 4 до 128 символов');
+    }
+    const h = String(hint ?? '').trim().slice(0, 64);
+    if (h && h === password) throw new HttpError(400, 'bad_hint', 'Подсказка не должна совпадать с паролем');
+    db.prepare('UPDATE users SET twofa_hash = ?, twofa_hint = ? WHERE id = ?').run(hashPassword(password), h, req.userId);
+    res.json(meView(req.userId));
+  });
+
+  app.delete('/api/me/2fa', (req, res) => {
+    const { password } = req.body ?? {};
+    const row = getUserRow.get(req.userId);
+    if (row.twofa_hash && !verifyPassword(String(password ?? ''), row.twofa_hash)) {
+      throw new HttpError(403, 'bad_2fa', 'Неверный пароль двухэтапной проверки');
+    }
+    db.prepare('UPDATE users SET twofa_hash = NULL, twofa_hint = NULL WHERE id = ?').run(req.userId);
+    res.json(meView(req.userId));
+  });
 
   app.get('/api/me', (req, res) => res.json(meView(req.userId)));
 
@@ -644,6 +716,23 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
     res.json(chatView(chat.id, req.userId));
   });
 
+  // Обои чата: в личном чате ставит любой участник, в группе и канале — владелец или админ.
+  app.put('/api/chats/:id/wallpaper', (req, res) => {
+    const m = requireMember(req.params.id, req.userId);
+    const chat = getChatRow.get(req.params.id);
+    if (['group', 'channel'].includes(chat.type) && !['owner', 'admin'].includes(m.role)) {
+      throw new HttpError(403, 'forbidden', 'Обои меняют только владелец или админ');
+    }
+    const fileId = req.body?.fileId ? String(req.body.fileId) : null;
+    if (fileId) {
+      const f = db.prepare('SELECT owner_id, mime FROM files WHERE id = ?').get(fileId);
+      if (!f || f.owner_id !== req.userId || !f.mime.startsWith('image/')) throw new HttpError(400, 'bad_file', 'Нужна картинка, загруженная вами');
+    }
+    db.prepare('UPDATE chats SET wallpaper_file_id = ? WHERE id = ?').run(fileId, chat.id);
+    broadcastChat(chat.id, { type: 'chat.updated', chatId: chat.id });
+    res.json(chatView(chat.id, req.userId));
+  });
+
   app.patch('/api/chats/:id/settings', (req, res) => {
     requireMember(req.params.id, req.userId);
     for (const field of ['pinned', 'muted', 'archived']) {
@@ -829,11 +918,122 @@ export function createApp({ db, dataDir, hub, adminUsernames = [] }) {
     res.sendFile(path.join(filesDir, row.id));
   });
 
+  // ---------- стикеры ----------
+  // Стикер — картинка (PNG/WebP), загруженная открыто. Паки можно пересылать друзьям по ссылке.
+  const MAX_STICKERS = 120;
+  const packRow = db.prepare('SELECT * FROM sticker_packs WHERE id = ?');
+  const packStickers = db.prepare('SELECT id, file_id, emoji FROM stickers WHERE pack_id = ? ORDER BY position, created_at');
+  const isAdded = db.prepare('SELECT 1 FROM user_sticker_packs WHERE user_id = ? AND pack_id = ?');
+
+  function packView(id, userId) {
+    const p = packRow.get(id);
+    if (!p) return null;
+    return {
+      id: p.id,
+      title: p.title,
+      ownerId: p.owner_id,
+      isMine: p.owner_id === userId,
+      isAdded: !!isAdded.get(userId, p.id),
+      stickers: packStickers.all(p.id).map((st) => ({ id: st.id, fileId: st.file_id, emoji: st.emoji ?? '' })),
+    };
+  }
+  function requirePack(id, userId, own = false) {
+    const p = packRow.get(String(id));
+    if (!p) throw new HttpError(404, 'pack_not_found', 'Набор стикеров не найден');
+    if (own && p.owner_id !== userId) throw new HttpError(403, 'forbidden', 'Это не ваш набор');
+    return p;
+  }
+
+  app.get('/api/stickers', (req, res) => {
+    const ids = db.prepare('SELECT pack_id FROM user_sticker_packs WHERE user_id = ? ORDER BY added_at').all(req.userId);
+    res.json(ids.map((r) => packView(r.pack_id, req.userId)).filter(Boolean));
+  });
+
+  app.post('/api/stickers/packs', (req, res) => {
+    const title = String(req.body?.title ?? '').trim().slice(0, 64);
+    if (!title) throw new HttpError(400, 'bad_title', 'Придумайте название набора');
+    const id = newId();
+    tx(db, () => {
+      db.prepare('INSERT INTO sticker_packs (id, owner_id, title, created_at) VALUES (?, ?, ?, ?)').run(id, req.userId, title, now());
+      db.prepare('INSERT INTO user_sticker_packs (user_id, pack_id, added_at) VALUES (?, ?, ?)').run(req.userId, id, now());
+    });
+    res.status(201).json(packView(id, req.userId));
+  });
+
+  app.get('/api/stickers/packs/:id', (req, res) => {
+    requirePack(req.params.id, req.userId);
+    res.json(packView(req.params.id, req.userId));
+  });
+
+  app.patch('/api/stickers/packs/:id', (req, res) => {
+    const p = requirePack(req.params.id, req.userId, true);
+    const title = String(req.body?.title ?? '').trim().slice(0, 64);
+    if (title) db.prepare('UPDATE sticker_packs SET title = ? WHERE id = ?').run(title, p.id);
+    res.json(packView(p.id, req.userId));
+  });
+
+  app.delete('/api/stickers/packs/:id', (req, res) => {
+    const p = requirePack(req.params.id, req.userId, true);
+    db.prepare('DELETE FROM sticker_packs WHERE id = ?').run(p.id);
+    res.json({ ok: true });
+  });
+
+  app.post('/api/stickers/packs/:id/stickers', (req, res) => {
+    const p = requirePack(req.params.id, req.userId, true);
+    const fileId = String(req.body?.fileId ?? '');
+    const f = db.prepare('SELECT owner_id, mime FROM files WHERE id = ?').get(fileId);
+    if (!f || f.owner_id !== req.userId || !f.mime.startsWith('image/')) throw new HttpError(400, 'bad_file', 'Нужна картинка, загруженная вами');
+    const count = db.prepare('SELECT COUNT(*) AS n FROM stickers WHERE pack_id = ?').get(p.id).n;
+    if (count >= MAX_STICKERS) throw new HttpError(400, 'pack_full', `В наборе может быть до ${MAX_STICKERS} стикеров`);
+    db.prepare('INSERT INTO stickers (id, pack_id, file_id, emoji, position, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(newId(), p.id, fileId, String(req.body?.emoji ?? '').slice(0, 16), count, now());
+    res.status(201).json(packView(p.id, req.userId));
+  });
+
+  app.delete('/api/stickers/packs/:id/stickers/:sid', (req, res) => {
+    const p = requirePack(req.params.id, req.userId, true);
+    db.prepare('DELETE FROM stickers WHERE id = ? AND pack_id = ?').run(String(req.params.sid), p.id);
+    res.json(packView(p.id, req.userId));
+  });
+
+  // Добавить чужой набор к себе или убрать его из своего списка.
+  app.put('/api/stickers/packs/:id/added', (req, res) => {
+    const p = requirePack(req.params.id, req.userId);
+    db.prepare('INSERT OR IGNORE INTO user_sticker_packs (user_id, pack_id, added_at) VALUES (?, ?, ?)').run(req.userId, p.id, now());
+    res.json(packView(p.id, req.userId));
+  });
+
+  app.delete('/api/stickers/packs/:id/added', (req, res) => {
+    const p = requirePack(req.params.id, req.userId);
+    db.prepare('DELETE FROM user_sticker_packs WHERE user_id = ? AND pack_id = ?').run(req.userId, p.id);
+    res.json(packView(p.id, req.userId));
+  });
+
   // ---------- badges ----------
 
   const allBadges = () => db.prepare('SELECT id, emoji, title, description, color FROM badges ORDER BY created_at').all();
 
   app.get('/api/badges', (_req, res) => res.json(allBadges()));
+
+  // Администратор может выложить свою сборку приложения — её получат все телефоны.
+  const apkUpload = multer({ dest: updatesDir, limits: { fileSize: 300 * 1024 * 1024 } });
+  app.post('/api/admin/app', adminOnly, apkUpload.single('apk'), (req, res) => {
+    if (!req.file) throw new HttpError(400, 'no_file', 'Файл APK не получен');
+    const versionCode = Number(req.body?.versionCode);
+    if (!Number.isInteger(versionCode) || versionCode < 1 || !req.body?.versionName) {
+      fs.rmSync(req.file.path, { force: true });
+      throw new HttpError(400, 'bad_version', 'Укажите versionCode (число) и versionName');
+    }
+    res.json(saveUpdate(req.file.path, { versionCode, versionName: req.body.versionName, notes: req.body.notes }));
+  });
+
+  app.post('/api/admin/app/sync', adminOnly, async (_req, res, next) => {
+    try {
+      res.json({ updated: await syncUpdate(), current: readUpdateInfo() });
+    } catch (e) {
+      next(new HttpError(502, 'sync_failed', `Не удалось забрать сборку: ${e.message}`));
+    }
+  });
 
   app.post('/api/admin/badges', adminOnly, (req, res) => {
     const { emoji, title, description = '', color = '#6750A4' } = req.body ?? {};

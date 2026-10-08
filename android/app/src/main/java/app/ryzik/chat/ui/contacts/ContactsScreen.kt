@@ -1,5 +1,7 @@
 package app.ryzik.chat.ui.contacts
 
+import androidx.compose.material.icons.rounded.Group
+import androidx.compose.material.icons.rounded.SearchOff
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -15,10 +17,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.PersonAdd
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
@@ -91,8 +93,8 @@ fun ContactsScreen(onOpenChat: (String) -> Unit, onOpenProfile: (String) -> Unit
                 value = query,
                 onValueChange = { query = it },
                 placeholder = { Text("Найти или добавить по имени, @нику") },
-                leadingIcon = { Icon(Icons.Default.Search, null) },
-                trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, "Очистить") } },
+                leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Close, "Очистить") } },
                 singleLine = true,
                 shape = RoundedCornerShape(28.dp),
                 colors = TextFieldDefaults.colors(focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent),
@@ -129,14 +131,14 @@ fun ContactsScreen(onOpenChat: (String) -> Unit, onOpenProfile: (String) -> Unit
                         trailing = {
                             FilledTonalIconButton(onClick = {
                                 scope.launch { runCatching { repo.setContact(u.id, true) }.onFailure { error = it.userMessage() } }
-                            }) { Icon(Icons.Default.PersonAdd, "Добавить в контакты") }
+                            }) { Icon(Icons.Rounded.PersonAdd, "Добавить в контакты") }
                         },
                         modifier = Modifier.animateItem().combinedClickable(onClick = { onOpenProfile(u.id) }),
                     )
                 }
                 if (mine.isEmpty() && others.isEmpty()) item(key = "empty") {
                     Column(Modifier.fillMaxWidth().padding(48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(if (q.isEmpty()) "👥" else "🔍", style = MaterialTheme.typography.displayMedium)
+                        app.ryzik.chat.ui.components.EmptyIcon(if (q.isEmpty()) Icons.Rounded.Group else Icons.Rounded.SearchOff)
                         Spacer(Modifier.height(12.dp))
                         Text(
                             if (q.isEmpty()) "Контактов пока нет. Найдите друга через поиск сверху и нажмите «добавить», или добавьте его прямо из чата."
@@ -179,7 +181,7 @@ private fun PersonRow(u: User, avatarUrl: String?, trailing: (@Composable () -> 
             )
         },
         leadingContent = { Avatar(u.displayName, avatarUrl, 48.dp, online = u.online) },
-        trailingContent = trailing ?: { if (u.isContact) Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.outline) },
+        trailingContent = trailing ?: { if (u.isContact) Icon(Icons.Rounded.Check, null, tint = MaterialTheme.colorScheme.outline) },
         modifier = modifier,
     )
 }

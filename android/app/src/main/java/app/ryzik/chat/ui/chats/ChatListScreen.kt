@@ -1,14 +1,16 @@
 package app.ryzik.chat.ui.chats
 
+import androidx.compose.material.icons.rounded.ChatBubble
+import androidx.compose.material.icons.rounded.SearchOff
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.rememberSwipeToDismissBoxState
-import androidx.compose.material.icons.filled.Verified
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Group
-import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.rounded.Verified
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Group
+import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
@@ -43,21 +45,27 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Archive
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DoneAll
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.NotificationsOff
-import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Unarchive
-import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.filled.Notifications
+import app.ryzik.chat.ui.components.EmptyIcon
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Archive
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DoneAll
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.NotificationsOff
+import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Unarchive
+import androidx.compose.material.icons.automirrored.rounded.ExitToApp
+import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.layout.statusBarsPadding
+import app.ryzik.chat.ui.components.AvatarShape
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -133,7 +141,7 @@ private fun ArchiveSwipe(enabled: Boolean, archived: Boolean, onSwiped: () -> Un
             ) {
                 val tint = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(if (archived) Icons.Default.Unarchive else Icons.Default.Archive, null, Modifier.graphicsLayer { scaleX = iconScale; scaleY = iconScale }, tint = tint)
+                    Icon(if (archived) Icons.Rounded.Unarchive else Icons.Rounded.Archive, null, Modifier.graphicsLayer { scaleX = iconScale; scaleY = iconScale }, tint = tint)
                     Text(if (archived) "Вернуть" else "В архив", style = MaterialTheme.typography.labelSmall, color = tint)
                 }
             }
@@ -186,8 +194,6 @@ fun ChatListScreen(
     }
 
     val listState = rememberLazyListState()
-    val expandedFab by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
-    val scroll = TopAppBarDefaults.pinnedScrollBehavior()
 
     val archivedCount = chats.count { it.archived }
     val visible = chats.filter { c ->
@@ -205,79 +211,69 @@ fun ChatListScreen(
     }
 
     Scaffold(
-        modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
         topBar = {
-            Column {
-                TopAppBar(
-                    scrollBehavior = scroll,
-                    navigationIcon = {
-                        AnimatedContent(searching || showArchive, label = "nav") { back ->
-                            if (back) IconButton(onClick = { searching = false; query = ""; showArchive = false }) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад")
-                            } else IconButton(onClick = onOpenSettings) {
-                                Avatar(me?.displayName ?: "?", repo.avatarUrl(me?.avatarFileId), 34.dp)
+            Column(Modifier.statusBarsPadding()) {
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    AnimatedContent(searching || showArchive, label = "lead") { back ->
+                        if (back) RoundButton(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") { searching = false; query = ""; showArchive = false }
+                        else Box {
+                            RoundButton(Icons.Rounded.Add, "Создать", primary = true) { fabOpen = true }
+                            DropdownMenu(fabOpen, onDismissRequest = { fabOpen = false }, shape = RoundedCornerShape(20.dp)) {
+                                DropdownMenuItem(text = { Text("Новый чат") }, leadingIcon = { Icon(Icons.Rounded.Person, null) }, onClick = { fabOpen = false; onNewChat() })
+                                DropdownMenuItem(text = { Text("Новая группа") }, leadingIcon = { Icon(Icons.Rounded.Group, null) }, onClick = { fabOpen = false; onNewGroup() })
+                                DropdownMenuItem(text = { Text("Новый канал") }, leadingIcon = { Icon(Icons.Rounded.Campaign, null) }, onClick = { fabOpen = false; onNewChannel() })
                             }
                         }
-                    },
-                    title = {
-                        AnimatedContent(searching, label = "title", transitionSpec = { fadeIn() togetherWith fadeOut() }) { s ->
-                            if (s) TextField(
-                                value = query,
-                                onValueChange = { query = it },
-                                placeholder = { Text("Поиск чатов и людей") },
-                                singleLine = true,
-                                colors = TextFieldDefaults.colors(
-                                    focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0f),
-                                    unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0f),
-                                    focusedIndicatorColor = MaterialTheme.colorScheme.surface.copy(alpha = 0f),
-                                    unfocusedIndicatorColor = MaterialTheme.colorScheme.surface.copy(alpha = 0f),
-                                ),
-                                modifier = Modifier.fillMaxWidth(),
-                            ) else Column {
-                                Text(if (showArchive) "Архив" else "RyzikChat", fontWeight = FontWeight.Bold)
-                                AnimatedVisibility(!connected) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text("Соединение", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Spacer(Modifier.width(4.dp))
-                                        TypingDots(MaterialTheme.colorScheme.onSurfaceVariant, 3.dp)
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    actions = {
-                        AnimatedContent(searching, label = "act") { s ->
-                            if (s) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, "Очистить") }
-                            else IconButton(onClick = { searching = true }) { Icon(Icons.Default.Search, "Поиск") }
-                        }
-                    },
-                )
-                AnimatedVisibility(!searching && !showArchive) {
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.padding(bottom = 4.dp),
-                    ) {
-                        items(Filter.entries) { f ->
-                            FilterChip(selected = filter == f, onClick = { filter = f }, label = { Text(f.title) })
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    SearchPill(
+                        query = query,
+                        onQuery = { query = it; if (it.isNotEmpty()) searching = true },
+                        placeholder = if (showArchive) "Поиск в архиве" else "Поиск",
+                        onFocus = { if (it) searching = true },
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Box(Modifier.clip(AvatarShape).clickable(onClick = onOpenSettings)) {
+                        Avatar(me?.displayName ?: "?", repo.avatarUrl(me?.avatarFileId), 44.dp)
+                    }
+                }
+                AnimatedVisibility(!connected || showArchive) {
+                    Row(Modifier.padding(start = 20.dp, top = 4.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (showArchive) "Архив" else "Соединение",
+                            style = if (showArchive) MaterialTheme.typography.titleLarge else MaterialTheme.typography.labelMedium,
+                            color = if (showArchive) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (!connected) {
+                            Spacer(Modifier.width(4.dp))
+                            TypingDots(MaterialTheme.colorScheme.onSurfaceVariant, 3.dp)
                         }
                     }
                 }
-                AnimatedVisibility(loading && chats.isEmpty()) { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-            }
-        },
-        floatingActionButton = {
-            AnimatedVisibility(!searching, enter = scaleIn(spring(Spring.DampingRatioMediumBouncy)), exit = scaleOut()) {
-                SpeedDial(
-                    open = fabOpen,
-                    expanded = expandedFab,
-                    onToggle = { fabOpen = !fabOpen },
-                    items = listOf(
-                        DialItem("Новый канал", Icons.Default.Campaign) { fabOpen = false; onNewChannel() },
-                        DialItem("Новая группа", Icons.Default.Group) { fabOpen = false; onNewGroup() },
-                        DialItem("Новый чат", Icons.Default.Person) { fabOpen = false; onNewChat() },
-                    ),
-                )
+                AnimatedVisibility(!searching && !showArchive) {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(vertical = 6.dp),
+                    ) {
+                        items(Filter.entries) { f ->
+                            val sel = filter == f
+                            val bg by androidx.compose.animation.animateColorAsState(if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh, label = "chip")
+                            val fg by androidx.compose.animation.animateColorAsState(if (sel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant, label = "chipFg")
+                            Text(
+                                f.title,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = fg,
+                                modifier = Modifier.clip(CircleShape).background(bg).clickable { filter = f }.padding(horizontal = 16.dp, vertical = 9.dp),
+                            )
+                        }
+                    }
+                }
+                AnimatedVisibility(loading && chats.isEmpty()) { LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(CircleShape)) }
             }
         },
     ) { padding ->
@@ -286,19 +282,27 @@ fun ChatListScreen(
             onRefresh = { scope.launch { repo.refreshChats() } },
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp)) {
                 if (!searching && !showArchive && archivedCount > 0) {
                     item(key = "archive") {
-                        ListItem(
-                            headlineContent = { Text("Архив") },
-                            supportingContent = { Text("Чатов: $archivedCount") },
-                            leadingContent = {
-                                Box(Modifier.size(56.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Default.Archive, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                                }
-                            },
-                            modifier = Modifier.animateItem().combinedClickable(onClick = { showArchive = true }),
-                        )
+                        Row(
+                            Modifier.animateItem().padding(horizontal = 12.dp, vertical = 4.dp).fillMaxWidth()
+                                .clip(RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.surfaceContainer)
+                                .combinedClickable(onClick = { showArchive = true }).padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(Modifier.size(48.dp).clip(AvatarShape).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Rounded.Archive, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Text("Архив", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                            Text(
+                                archivedCount.toString(),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHighest).padding(horizontal = 10.dp, vertical = 3.dp),
+                            )
+                        }
                     }
                 }
                 items(visible, key = { it.id }) { chat ->
@@ -306,7 +310,7 @@ fun ChatListScreen(
                         enabled = chat.type != "saved" && !chat.isService,
                         archived = chat.archived,
                         onSwiped = { scope.launch { runCatching { repo.setArchived(chat.id, !chat.archived) } } },
-                        modifier = Modifier.animateItem(),
+                        modifier = Modifier.animateItem().padding(horizontal = 12.dp, vertical = 4.dp).clip(RoundedCornerShape(24.dp)),
                     ) {
                     ChatRow(
                         chat = chat,
@@ -318,7 +322,7 @@ fun ChatListScreen(
                         compact = settings?.compactList == true,
                         avatarUrl = repo.avatarUrl(if (chat.type == "direct") repo.peerOf(chat)?.avatarFileId else chat.avatarFileId),
                         modifier = Modifier
-                            .background(MaterialTheme.colorScheme.surface)
+                            .background(if (chat.pinned) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainer)
                             .combinedClickable(onClick = { onOpenChat(chat.id) }, onLongClick = { menuChat = chat }),
                     )
                     }
@@ -359,7 +363,7 @@ fun ChatListScreen(
                         ListItem(
                             headlineContent = { Text("Открыть приглашение") },
                             supportingContent = { Text("Вступить в группу или канал по ссылке") },
-                            leadingContent = { Icon(Icons.Default.Link, null, tint = MaterialTheme.colorScheme.primary) },
+                            leadingContent = { Icon(Icons.Rounded.Link, null, tint = MaterialTheme.colorScheme.primary) },
                             modifier = Modifier.clickable { openInvite = inviteCode },
                         )
                     }
@@ -402,32 +406,32 @@ fun ChatListScreen(
             }
             ListItem(
                 headlineContent = { Text(if (chat.pinned) "Открепить" else "Закрепить") },
-                leadingContent = { Icon(Icons.Default.PushPin, null) },
+                leadingContent = { Icon(Icons.Rounded.PushPin, null) },
                 modifier = Modifier.combinedClickable(onClick = { act { repo.setPinned(chat.id, !chat.pinned) } }),
             )
             ListItem(
                 headlineContent = { Text(if (chat.muted) "Включить уведомления" else "Без звука") },
-                leadingContent = { Icon(if (chat.muted) Icons.Default.Notifications else Icons.Default.NotificationsOff, null) },
+                leadingContent = { Icon(if (chat.muted) Icons.Rounded.Notifications else Icons.Rounded.NotificationsOff, null) },
                 modifier = Modifier.combinedClickable(onClick = { act { repo.setMuted(chat.id, !chat.muted) } }),
             )
             if (chat.type != "saved" && !chat.isService) {
                 ListItem(
                     headlineContent = { Text(if (chat.archived) "Вернуть из архива" else "В архив") },
-                    leadingContent = { Icon(if (chat.archived) Icons.Default.Unarchive else Icons.Default.Archive, null) },
+                    leadingContent = { Icon(if (chat.archived) Icons.Rounded.Unarchive else Icons.Rounded.Archive, null) },
                     modifier = Modifier.combinedClickable(onClick = { act { repo.setArchived(chat.id, !chat.archived) } }),
                 )
             }
             if (chat.type == "channel" && chat.myRole != "owner" && !chat.isService) {
                 ListItem(
                     headlineContent = { Text("Отписаться", color = MaterialTheme.colorScheme.error) },
-                    leadingContent = { Icon(Icons.AutoMirrored.Filled.ExitToApp, null, tint = MaterialTheme.colorScheme.error) },
+                    leadingContent = { Icon(Icons.AutoMirrored.Rounded.ExitToApp, null, tint = MaterialTheme.colorScheme.error) },
                     modifier = Modifier.combinedClickable(onClick = { act { repo.leave(chat.id) } }),
                 )
             }
             if (chat.type == "group") {
                 ListItem(
                     headlineContent = { Text("Покинуть группу", color = MaterialTheme.colorScheme.error) },
-                    leadingContent = { Icon(Icons.AutoMirrored.Filled.ExitToApp, null, tint = MaterialTheme.colorScheme.error) },
+                    leadingContent = { Icon(Icons.AutoMirrored.Rounded.ExitToApp, null, tint = MaterialTheme.colorScheme.error) },
                     modifier = Modifier.combinedClickable(onClick = { act { repo.removeMember(chat.id, me!!.id) } }),
                 )
             }
@@ -449,11 +453,11 @@ private fun ChatRow(
     modifier: Modifier,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val avatarSize = if (compact) 44.dp else 56.dp
+    val avatarSize = if (compact) 44.dp else 54.dp
     Row(
         modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = if (compact) 6.dp else 8.dp),
+            .padding(horizontal = 12.dp, vertical = if (compact) 8.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Avatar(title, avatarUrl, avatarSize, online = peer?.online == true, saved = chat.type == "saved", service = chat.isService)
@@ -462,20 +466,24 @@ private fun ChatRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                     Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                    if (chat.isService) Icon(Icons.Default.Verified, "Официальный чат", Modifier.padding(start = 4.dp).size(16.dp), tint = scheme.primary)
-                    else if (chat.type == "channel") Icon(Icons.Default.Campaign, null, Modifier.padding(start = 4.dp).size(16.dp), tint = scheme.primary)
+                    if (chat.isService) Icon(Icons.Rounded.Verified, "Официальный чат", Modifier.padding(start = 4.dp).size(16.dp), tint = scheme.primary)
+                    else if (chat.type == "channel") Icon(Icons.Rounded.Campaign, null, Modifier.padding(start = 4.dp).size(16.dp), tint = scheme.primary)
                     if (peer != null) BadgeIcons(peer.badges, peer.isAdmin, 16.dp, peer.isPremium, peer.emojiStatus)
-                    if (chat.muted) Icon(Icons.Default.NotificationsOff, null, Modifier.padding(start = 4.dp).size(14.dp), tint = scheme.outline)
+                    if (chat.muted) Icon(Icons.Rounded.NotificationsOff, null, Modifier.padding(start = 4.dp).size(14.dp), tint = scheme.outline)
                 }
                 val last = chat.lastMessage
                 if (last != null && last.senderId == myId && chat.type != "saved") {
-                    Icon(Icons.Default.DoneAll, null, Modifier.size(16.dp), tint = scheme.primary)
+                    Icon(Icons.Rounded.DoneAll, null, Modifier.size(16.dp), tint = scheme.primary)
                     Spacer(Modifier.width(4.dp))
                 }
                 Text(
                     formatListTime(chat.lastMessage?.createdAt ?: chat.createdAt),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (chat.unread > 0) scheme.primary else scheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (chat.unread > 0) scheme.onPrimaryContainer else scheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(if (chat.unread > 0) scheme.primaryContainer else scheme.surfaceContainerHighest)
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
                 )
             }
             Spacer(Modifier.height(2.dp))
@@ -492,7 +500,7 @@ private fun ChatRow(
                             TypingDots(scheme.primary, 4.dp)
                         } else Row(verticalAlignment = Alignment.CenterVertically) {
                             if (chat.type != "saved" && chat.type != "channel" && chat.lastMessage != null) {
-                                Icon(Icons.Default.Lock, null, Modifier.size(12.dp), tint = scheme.outline)
+                                Icon(Icons.Rounded.Lock, null, Modifier.size(12.dp), tint = scheme.outline)
                                 Spacer(Modifier.width(4.dp))
                             }
                             Text(
@@ -512,7 +520,7 @@ private fun ChatRow(
                     }
                 }
                 if (chat.pinned && chat.unread == 0) {
-                    Icon(Icons.Default.PushPin, null, Modifier.size(16.dp), tint = scheme.outline)
+                    Icon(Icons.Rounded.PushPin, null, Modifier.size(16.dp), tint = scheme.outline)
                 }
                 UnreadBadge(chat.unread, chat.muted)
             }
@@ -529,8 +537,8 @@ private fun UnreadBadge(count: Int, muted: Boolean) {
         Modifier
             .padding(start = 6.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .defaultMinSize(minWidth = 22.dp, minHeight = 22.dp)
-            .clip(RoundedCornerShape(11.dp))
+            .defaultMinSize(minWidth = 24.dp, minHeight = 24.dp)
+            .clip(CircleShape)
             .background(if (muted) scheme.outline else scheme.primary)
             .padding(horizontal = 6.dp),
         contentAlignment = Alignment.Center,
@@ -544,7 +552,7 @@ private fun UnreadBadge(count: Int, muted: Boolean) {
 @Composable
 private fun EmptyState(searching: Boolean, modifier: Modifier) {
     Column(modifier.fillMaxWidth().padding(48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(if (searching) "🔍" else "💬", style = MaterialTheme.typography.displayMedium)
+        EmptyIcon(if (searching) Icons.Rounded.SearchOff else Icons.Rounded.ChatBubble)
         Spacer(Modifier.height(12.dp))
         Text(
             if (searching) "Ничего не нашлось" else "Здесь пока пусто. Нажмите на карандаш в углу, чтобы написать другу, создать группу или канал.",
@@ -596,8 +604,54 @@ private fun SpeedDial(open: Boolean, expanded: Boolean, onToggle: () -> Unit, it
         ExtendedFloatingActionButton(
             onClick = onToggle,
             expanded = expanded && !open,
-            icon = { Icon(Icons.Default.Add, null, Modifier.graphicsLayer { rotationZ = rotation }) },
+            icon = { Icon(Icons.Rounded.Add, null, Modifier.graphicsLayer { rotationZ = rotation }) },
             text = { Text("Создать") },
         )
+    }
+}
+
+
+/** Круглая кнопка с иконкой для верхней строки. */
+@Composable
+fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, primary: Boolean = false, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Box(
+        Modifier.size(44.dp).clip(CircleShape)
+            .background(if (primary) scheme.primary else scheme.surfaceContainerHigh)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { Icon(icon, label, tint = if (primary) scheme.onPrimary else scheme.onSurface) }
+}
+
+/** Поле поиска в виде «пилюли». */
+@Composable
+fun SearchPill(
+    query: String,
+    onQuery: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    onFocus: (Boolean) -> Unit = {},
+) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier.height(44.dp).clip(CircleShape).background(scheme.surfaceContainerHigh).padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Rounded.Search, null, Modifier.size(20.dp), tint = scheme.onSurfaceVariant)
+        Spacer(Modifier.width(8.dp))
+        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+            if (query.isEmpty()) Text(placeholder, style = MaterialTheme.typography.bodyLarge, color = scheme.onSurfaceVariant, maxLines = 1)
+            androidx.compose.foundation.text.BasicTextField(
+                value = query,
+                onValueChange = onQuery,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
+                cursorBrush = androidx.compose.ui.graphics.SolidColor(scheme.primary),
+                modifier = Modifier.fillMaxWidth().onFocusChanged { onFocus(it.isFocused) },
+            )
+        }
+        AnimatedVisibility(query.isNotEmpty()) {
+            Icon(Icons.Rounded.Close, "Очистить", Modifier.size(20.dp).clip(CircleShape).clickable { onQuery("") }, tint = scheme.onSurfaceVariant)
+        }
     }
 }

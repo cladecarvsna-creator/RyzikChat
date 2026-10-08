@@ -1,5 +1,7 @@
 package app.ryzik.chat
 
+import app.ryzik.chat.ui.chat.StickerViewer
+import app.ryzik.chat.ui.chat.StickerPackDialog
 import android.Manifest
 import android.content.Intent
 import android.os.Build
@@ -74,6 +76,10 @@ class MainActivity : ComponentActivity() {
 
     private fun handleInvite(intent: Intent?) {
         val data = intent?.data ?: return
+        if (data.scheme == "ryzik" && data.host == "stickers") {
+            data.lastPathSegment?.let { StickerViewer.open(it) }
+            return
+        }
         if (data.scheme == "ryzik" && data.host == "join") {
             parseInviteCode(data.toString())?.let { pendingInvite.value = it }
         }
@@ -112,6 +118,11 @@ class MainActivity : ComponentActivity() {
                                 onDismiss = { pendingInvite.value = null },
                                 onOpenChat = { id -> pendingInvite.value = null; pendingChat.value = id },
                             )
+                        }
+                        // Набор стикеров: из сообщения или по ссылке ryzik://stickers/<id>.
+                        val pack by StickerViewer.packId.collectAsState()
+                        if (pack != null && auth is AuthState.LoggedIn) {
+                            StickerPackDialog(pack!!, onDismiss = { StickerViewer.close() })
                         }
                         // Звонок открывается поверх любого экрана.
                         val call by app.calls.state.collectAsState()
@@ -217,6 +228,8 @@ private fun MainNav(pendingChat: String?, onPendingHandled: () -> Unit) {
         }
     }
 
+    app.ryzik.chat.update.UpdatePrompt()
+
     NavHost(
         nav,
         startDestination = "chats",
@@ -254,6 +267,7 @@ private fun MainNav(pendingChat: String?, onPendingHandled: () -> Unit) {
                         onOpenPremium = { nav.go("premium") },
                         onOpenProfileLook = { nav.go("profilelook") },
                         onOpenSaved = { repo.savedChat()?.let { nav.go("chat/${it.id}") } },
+                        onOpenProfile = { tab = HomeTab.Profile },
                     )
                 }
             }

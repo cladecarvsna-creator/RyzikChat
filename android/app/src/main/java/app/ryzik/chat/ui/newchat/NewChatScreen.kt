@@ -27,13 +27,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Group
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Group
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -94,7 +94,7 @@ fun NewChatScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, addToChatId:
     Scaffold(
         topBar = {
             TopAppBar(
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") } },
                 title = {
                     AnimatedContent(groupMode, label = "t") { g ->
                         Text(
@@ -129,7 +129,7 @@ fun NewChatScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, addToChatId:
                     }
                 }) {
                     if (busy) CircularProgressIndicator(Modifier.size(24.dp))
-                    else Icon(if (addToChatId != null) Icons.Default.Check else Icons.AutoMirrored.Filled.ArrowForward, "Готово")
+                    else Icon(if (addToChatId != null) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.ArrowForward, "Готово")
                 }
             }
         },
@@ -144,7 +144,7 @@ fun NewChatScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, addToChatId:
                             value = groupTitle,
                             onValueChange = { groupTitle = it.take(128) },
                             label = { Text("Название группы") },
-                            leadingIcon = { Icon(Icons.Default.Group, null) },
+                            leadingIcon = { Icon(Icons.Rounded.Group, null) },
                             singleLine = true,
                             shape = RoundedCornerShape(16.dp),
                             modifier = Modifier.weight(1f),
@@ -158,10 +158,10 @@ fun NewChatScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, addToChatId:
                 value = query,
                 onValueChange = { query = it },
                 placeholder = { Text("Имя или @username") },
-                leadingIcon = { Icon(Icons.Default.Search, null) },
+                leadingIcon = { Icon(Icons.Rounded.Search, null) },
                 trailingIcon = {
                     if (searching) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    else if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, "Очистить") }
+                    else if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Close, "Очистить") }
                 },
                 singleLine = true,
                 shape = RoundedCornerShape(28.dp),
@@ -175,7 +175,7 @@ fun NewChatScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, addToChatId:
                             onClick = { selected.remove(u) },
                             label = { Text(u.displayName) },
                             avatar = { Avatar(u.displayName, repo.avatarUrl(u.avatarFileId), 24.dp) },
-                            trailingIcon = { Icon(Icons.Default.Close, null, Modifier.size(16.dp)) },
+                            trailingIcon = { Icon(Icons.Rounded.Close, null, Modifier.size(16.dp)) },
                             modifier = Modifier.animateItem(),
                         )
                     }
@@ -189,7 +189,7 @@ fun NewChatScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, addToChatId:
                     item {
                         ListItem(
                             headlineContent = { Text("Создать группу") },
-                            leadingContent = { CircleIcon { Icon(Icons.Default.Group, null, tint = MaterialTheme.colorScheme.onPrimaryContainer) } },
+                            leadingContent = { CircleIcon { Icon(Icons.Rounded.Group, null, tint = MaterialTheme.colorScheme.onPrimaryContainer) } },
                             modifier = Modifier.clickable { groupMode = true },
                         )
                     }
@@ -197,7 +197,7 @@ fun NewChatScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, addToChatId:
                         ListItem(
                             headlineContent = { Text("Избранное") },
                             supportingContent = { Text("Заметки и сохранённые сообщения") },
-                            leadingContent = { CircleIcon { Icon(Icons.Default.Bookmark, null, tint = MaterialTheme.colorScheme.onPrimaryContainer) } },
+                            leadingContent = { CircleIcon { Icon(Icons.Rounded.Bookmark, null, tint = MaterialTheme.colorScheme.onPrimaryContainer) } },
                             modifier = Modifier.clickable { repo.savedChat()?.let { onOpenChat(it.id) } },
                         )
                     }
@@ -230,7 +230,7 @@ fun NewChatScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, addToChatId:
                                     exit = scaleOut(),
                                 ) {
                                     Box(Modifier.size(20.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary), contentAlignment = Alignment.Center) {
-                                        Icon(Icons.Default.Check, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                                        Icon(Icons.Rounded.Check, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onPrimary)
                                     }
                                 }
                             }

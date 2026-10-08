@@ -5,10 +5,20 @@ import { openDb } from './db.js';
 import { createApp } from './app.js';
 import { Hub } from './realtime.js';
 
-export function startServer({ port = 8080, dataDir = './data', adminUsernames = [] } = {}) {
+/** Откуда сервер забирает свежие сборки приложения (папка с update.json и RyzikChat.apk). */
+export const DEFAULT_UPDATE_SOURCE = 'https://github.com/cladecarvsna-creator/RyzikChat/releases/download/ryzikchat-latest';
+
+export function startServer({ port = 8080, dataDir = './data', adminUsernames = [], updateSource = null } = {}) {
   const db = openDb(dataDir);
   const hub = new Hub();
-  const app = createApp({ db, dataDir, hub, adminUsernames });
+  const app = createApp({ db, dataDir, hub, adminUsernames, updateSource });
+  // Проверяем новую сборку при запуске и раз в 3 часа.
+  if (updateSource) {
+    const sync = () => app.locals.syncUpdate().then((u) => u && console.log(`Скачана сборка приложения ${u.versionName}`))
+      .catch((e) => console.warn(`Обновления: ${e.message}`));
+    sync();
+    setInterval(sync, 3 * 3600_000).unref();
+  }
   const server = http.createServer(app);
   const wss = hub.attach(server, app.locals);
   return new Promise((resolve) => {
@@ -24,7 +34,10 @@ if (isMain) {
   const port = Number(process.env.PORT ?? 8080);
   const dataDir = path.resolve(process.env.DATA_DIR ?? './data');
   const adminUsernames = (process.env.ADMIN_USERNAMES ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
-  startServer({ port, dataDir, adminUsernames }).then(({ port: p }) => {
+  // UPDATE_SOURCE=off — не забирать сборки автоматически (тогда APK загружает админ).
+  const src = process.env.UPDATE_SOURCE ?? DEFAULT_UPDATE_SOURCE;
+  const updateSource = src && src !== 'off' ? src.replace(/\/$/, '') : null;
+  startServer({ port, dataDir, adminUsernames, updateSource }).then(({ port: p }) => {
     console.log(`RyzikChat server: http://0.0.0.0:${p} (данные: ${dataDir})`);
   });
 }

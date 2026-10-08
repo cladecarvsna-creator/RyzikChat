@@ -42,10 +42,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.VolumeOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -473,8 +473,8 @@ fun VoiceContent(msg: UiMessage, file: FileRef, color: Color, accent: Color) {
             val loading = msg.status == SendStatus.Sending || state is MediaState.Loading
             when {
                 loading -> CircularProgressIndicator(Modifier.size(30.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.5.dp)
-                local == null -> Icon(Icons.Default.Download, "Скачать", tint = MaterialTheme.colorScheme.onPrimary)
-                else -> Icon(if (isCurrent && playing) Icons.Default.Pause else Icons.Default.PlayArrow, "Слушать", tint = MaterialTheme.colorScheme.onPrimary)
+                local == null -> Icon(Icons.Rounded.Download, "Скачать", tint = MaterialTheme.colorScheme.onPrimary)
+                else -> Icon(if (isCurrent && playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Слушать", tint = MaterialTheme.colorScheme.onPrimary)
             }
         }
         Spacer(Modifier.width(10.dp))
@@ -571,8 +571,8 @@ fun SquareContent(msg: UiMessage, file: FileRef, autoDownload: Boolean) {
             when {
                 uploading -> CircularProgressIndicator(progress = { msg.uploadProgress ?: 0f }, color = Color.White, modifier = Modifier.size(44.dp))
                 state is MediaState.Loading -> CircularProgressIndicator(color = Color.White, modifier = Modifier.size(44.dp))
-                local == null -> Icon(Icons.Default.Download, "Скачать", tint = Color.White, modifier = Modifier.size(40.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.4f)).padding(8.dp))
-                !isCurrent || !playing -> Icon(Icons.Default.PlayArrow, "Смотреть", tint = Color.White, modifier = Modifier.size(52.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.35f)).padding(8.dp))
+                local == null -> Icon(Icons.Rounded.Download, "Скачать", tint = Color.White, modifier = Modifier.size(40.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.4f)).padding(8.dp))
+                !isCurrent || !playing -> Icon(Icons.Rounded.PlayArrow, "Смотреть", tint = Color.White, modifier = Modifier.size(52.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.35f)).padding(8.dp))
             }
             Row(
                 Modifier.align(Alignment.BottomStart).padding(10.dp).clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(alpha = 0.4f)).padding(horizontal = 6.dp, vertical = 2.dp),
@@ -581,7 +581,7 @@ fun SquareContent(msg: UiMessage, file: FileRef, autoDownload: Boolean) {
                 Text(formatDuration(if (isCurrent) position else file.durationMs), color = Color.White, style = MaterialTheme.typography.labelSmall)
                 if (!isCurrent) {
                     Spacer(Modifier.width(4.dp))
-                    Icon(Icons.Default.VolumeOff, null, tint = Color.White, modifier = Modifier.size(12.dp))
+                    Icon(Icons.Rounded.VolumeOff, null, tint = Color.White, modifier = Modifier.size(12.dp))
                 }
             }
         }

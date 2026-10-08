@@ -32,11 +32,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.automirrored.outlined.Chat
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.Contacts
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.rounded.AccountCircle
+import androidx.compose.material.icons.rounded.Contacts
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Contacts
 import androidx.compose.material.icons.outlined.Settings
@@ -61,10 +61,10 @@ import androidx.compose.ui.unit.dp
 import app.ryzik.chat.RyzikApp
 
 enum class HomeTab(val title: String, val icon: ImageVector, val iconOff: ImageVector) {
-    Chats("Чаты", Icons.AutoMirrored.Filled.Chat, Icons.AutoMirrored.Outlined.Chat),
-    Contacts("Контакты", Icons.Default.Contacts, Icons.Outlined.Contacts),
-    Profile("Профиль", Icons.Default.AccountCircle, Icons.Outlined.AccountCircle),
-    Settings("Настройки", Icons.Default.Settings, Icons.Outlined.Settings),
+    Chats("Чаты", Icons.AutoMirrored.Rounded.Chat, Icons.AutoMirrored.Outlined.Chat),
+    Contacts("Контакты", Icons.Rounded.Contacts, Icons.Outlined.Contacts),
+    Profile("Профиль", Icons.Rounded.AccountCircle, Icons.Outlined.AccountCircle),
+    Settings("Настройки", Icons.Rounded.Settings, Icons.Outlined.Settings),
 }
 
 /** Главный экран: вкладки и плавающая нижняя панель. */

@@ -1,16 +1,16 @@
 package app.ryzik.chat.ui.profile
 
-import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.NotificationsOff
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.CameraAlt
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.NotificationsOff
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
@@ -31,15 +31,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.filled.AdminPanelSettings
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.PersonRemove
-import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Chat
+import androidx.compose.material.icons.automirrored.rounded.ExitToApp
+import androidx.compose.material.icons.rounded.AdminPanelSettings
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.PersonAdd
+import androidx.compose.material.icons.rounded.PersonRemove
+import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedCard
@@ -117,10 +117,10 @@ fun ProfileScreen(
     Scaffold(topBar = {
         TopAppBar(
             title = { Text(if (isMe) "Мой профиль" else "Профиль") },
-            navigationIcon = { if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
+            navigationIcon = { if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") } },
             actions = {
                 if (isMe) IconButton(onClick = { name = me?.displayName.orEmpty(); bio = me?.bio.orEmpty(); editing = true }) {
-                    Icon(Icons.Default.Edit, "Изменить")
+                    Icon(Icons.Rounded.Edit, "Изменить")
                 }
             },
         )
@@ -171,42 +171,42 @@ fun ProfileScreen(
                 }
                 Spacer(Modifier.height(16.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 16.dp)) {
-                    ProfileAction(Icons.Default.CameraAlt, if (uploading) "Загрузка…" else "Фото", Modifier.weight(1f)) {
+                    ProfileAction(Icons.Rounded.CameraAlt, if (uploading) "Загрузка…" else "Фото", Modifier.weight(1f)) {
                         picker.launch(
                             androidx.activity.result.PickVisualMediaRequest(
                                 androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly,
                             ),
                         )
                     }
-                    ProfileAction(Icons.Default.Edit, "Изменить", Modifier.weight(1f)) {
+                    ProfileAction(Icons.Rounded.Edit, "Изменить", Modifier.weight(1f)) {
                         name = user.displayName; bio = user.bio; editing = true
                     }
-                    ProfileAction(Icons.Default.Palette, "Оформление", Modifier.weight(1f), onClick = onOpenProfileLook)
+                    ProfileAction(Icons.Rounded.Palette, "Оформление", Modifier.weight(1f), onClick = onOpenProfileLook)
                 }
                 Spacer(Modifier.height(12.dp))
                 ElevatedCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                     ListItem(
                         headlineContent = { Text("Избранное") },
                         supportingContent = { Text("Ваши сохранённые сообщения") },
-                        leadingContent = { Icon(Icons.Default.Bookmark, null, tint = MaterialTheme.colorScheme.primary) },
+                        leadingContent = { Icon(Icons.Rounded.Bookmark, null, tint = MaterialTheme.colorScheme.primary) },
                         modifier = Modifier.clickable(onClick = onOpenSaved),
                     )
                 }
             } else if (!user.isService) {
                 Spacer(Modifier.height(20.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 16.dp)) {
-                    if (!blocked) ProfileAction(Icons.AutoMirrored.Filled.Chat, "Написать", Modifier.weight(1f)) {
+                    if (!blocked) ProfileAction(Icons.AutoMirrored.Rounded.Chat, "Написать", Modifier.weight(1f)) {
                         scope.launch { runCatching { repo.openDirect(user.id) }.onSuccess { onOpenChat(it.id) }.onFailure { error = it.userMessage() } }
                     }
                     if (!blocked) ProfileAction(
-                        if (isContact) Icons.Default.PersonRemove else Icons.Default.PersonAdd,
+                        if (isContact) Icons.Rounded.PersonRemove else Icons.Rounded.PersonAdd,
                         if (isContact) "Убрать из контактов" else "В контакты",
                         Modifier.weight(1f),
                     ) {
                         scope.launch { runCatching { repo.setContact(user.id, !isContact) }.onFailure { error = it.userMessage() } }
                     }
                     ProfileAction(
-                        Icons.Default.Block,
+                        Icons.Rounded.Block,
                         if (blocked) "Разблокировать" else "Заблокировать",
                         Modifier.weight(1f),
                         danger = !blocked,
@@ -227,7 +227,7 @@ fun ProfileScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.padding(horizontal = 16.dp),
                 ) {
-                    if (user.isAdmin) BadgeChip(Badge("admin", "🛡️", "Администратор", color = "#6750A4"))
+                    if (user.isAdmin) BadgeChip(Badge("admin", "", "Администратор", color = "#6750A4"))
                     user.badges.forEach { BadgeChip(it) }
                 }
             }
@@ -239,7 +239,7 @@ fun ProfileScreen(
                     supportingContent = {
                         Text(repo.fingerprintOf(user), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
                     },
-                    leadingContent = { Icon(Icons.Default.Lock, null) },
+                    leadingContent = { Icon(Icons.Rounded.Lock, null) },
                 )
                 Text(
                     "Сверьте эти цифры с собеседником при встрече: если совпадают, никто не подменил ключи.",
@@ -254,7 +254,7 @@ fun ProfileScreen(
                 ElevatedCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                     Column(Modifier.padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.AdminPanelSettings, null, tint = MaterialTheme.colorScheme.primary)
+                            Icon(Icons.Rounded.AdminPanelSettings, null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(8.dp))
                             Text("Администрирование", style = MaterialTheme.typography.titleMedium)
                         }
@@ -286,7 +286,7 @@ fun ProfileScreen(
                         }
                         Spacer(Modifier.height(8.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Star, null)
+                            Icon(Icons.Rounded.Star, null)
                             Spacer(Modifier.width(8.dp))
                             Text("Премиум", Modifier.weight(1f))
                             Switch(checked = user.isPremium, onCheckedChange = { v ->
@@ -296,7 +296,7 @@ fun ProfileScreen(
                         if (user.id != me?.id) {
                             Spacer(Modifier.height(8.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Verified, null)
+                                Icon(Icons.Rounded.Verified, null)
                                 Spacer(Modifier.width(8.dp))
                                 Text("Администратор", Modifier.weight(1f))
                                 Switch(checked = user.isAdmin, onCheckedChange = { v ->
@@ -396,11 +396,11 @@ fun ChatInfoScreen(
     Scaffold(topBar = {
         TopAppBar(
             title = { Text(when (chat?.type) { "saved" -> "Избранное"; "channel" -> "Канал"; else -> "Группа" }) },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") } },
             actions = {
                 val owner = chat?.members?.any { it.user.id == myId && it.role == "owner" } == true
                 if ((chat?.type == "group" && owner) || (chat?.type == "channel" && (chat.myRole == "owner" || chat.myRole == "admin"))) {
-                    IconButton(onClick = { newTitle = chat.title; newDescription = chat.description; renaming = true }) { Icon(Icons.Default.Edit, "Изменить") }
+                    IconButton(onClick = { newTitle = chat.title; newDescription = chat.description; renaming = true }) { Icon(Icons.Rounded.Edit, "Изменить") }
                 }
             },
         )
@@ -462,13 +462,13 @@ fun ChatInfoScreen(
                     ListItem(
                         headlineContent = { Text(link, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
                         supportingContent = { Text("Ссылка-приглашение · нажмите, чтобы скопировать") },
-                        leadingContent = { Icon(Icons.Default.Link, null, tint = MaterialTheme.colorScheme.primary) },
+                        leadingContent = { Icon(Icons.Rounded.Link, null, tint = MaterialTheme.colorScheme.primary) },
                         trailingContent = {
                             IconButton(onClick = {
                                 val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
                                     .putExtra(android.content.Intent.EXTRA_TEXT, "Присоединяйся к «${chat.title}» в RyzikChat: $link")
                                 context.startActivity(android.content.Intent.createChooser(send, "Поделиться ссылкой"))
-                            }) { Icon(Icons.Default.Share, "Поделиться") }
+                            }) { Icon(Icons.Rounded.Share, "Поделиться") }
                         },
                         modifier = Modifier.clickable {
                             clipboard.setText(androidx.compose.ui.text.AnnotatedString(link))
@@ -480,7 +480,7 @@ fun ChatInfoScreen(
                     ListItem(
                         headlineContent = { Text("Сменить ссылку") },
                         supportingContent = { Text("Старая ссылка перестанет работать") },
-                        leadingContent = { Icon(Icons.Default.Refresh, null) },
+                        leadingContent = { Icon(Icons.Rounded.Refresh, null) },
                         modifier = Modifier.clickable { scope.launch { runCatching { repo.resetInvite(chat.id) }.onFailure { infoError = it.userMessage() } } },
                     )
                 }
@@ -493,7 +493,7 @@ fun ChatInfoScreen(
                                 else "Скрыт из поиска, только по ссылке-приглашению"
                             )
                         },
-                        leadingContent = { Icon(if (chat.isPublic) Icons.Default.Public else Icons.Default.Lock, null) },
+                        leadingContent = { Icon(if (chat.isPublic) Icons.Rounded.Public else Icons.Rounded.Lock, null) },
                         trailingContent = {
                             androidx.compose.material3.Switch(chat.isPublic, onCheckedChange = { v ->
                                 scope.launch { runCatching { repo.setChatPublic(chat.id, v) }.onFailure { infoError = it.userMessage() } }
@@ -505,7 +505,7 @@ fun ChatInfoScreen(
             if (chat.type == "group" && chat.myRole == null && chat.isPublic) item {
                 ListItem(
                     headlineContent = { Text("Вступить в группу", color = MaterialTheme.colorScheme.primary) },
-                    leadingContent = { Icon(Icons.Default.PersonAdd, null, tint = MaterialTheme.colorScheme.primary) },
+                    leadingContent = { Icon(Icons.Rounded.PersonAdd, null, tint = MaterialTheme.colorScheme.primary) },
                     modifier = Modifier.clickable { scope.launch { runCatching { repo.subscribe(chat.id) }.onFailure { infoError = it.userMessage() } } },
                 )
             }
@@ -513,7 +513,7 @@ fun ChatInfoScreen(
                 if (chat.myRole != null) item {
                     ListItem(
                         headlineContent = { Text(if (chat.muted) "Включить звук" else "Выключить звук") },
-                        leadingContent = { Icon(if (chat.muted) Icons.Default.Notifications else Icons.Default.NotificationsOff, null) },
+                        leadingContent = { Icon(if (chat.muted) Icons.Rounded.Notifications else Icons.Rounded.NotificationsOff, null) },
                         modifier = Modifier.clickable { scope.launch { runCatching { repo.setMuted(chat.id, !chat.muted) } } },
                     )
                 }
@@ -530,7 +530,7 @@ fun ChatInfoScreen(
                         trailingContent = {
                             if (chat.myRole == "owner" && m.role == "admin") IconButton(onClick = {
                                 scope.launch { runCatching { repo.setChannelAdmin(chat.id, u.id, false) } }
-                            }) { Icon(Icons.Default.PersonRemove, "Снять админа") }
+                            }) { Icon(Icons.Rounded.PersonRemove, "Снять админа") }
                         },
                         modifier = Modifier.clickable { onOpenProfile(u.id) },
                     )
@@ -539,13 +539,13 @@ fun ChatInfoScreen(
                     if (chat.myRole == null) {
                         ListItem(
                             headlineContent = { Text("Подписаться", color = MaterialTheme.colorScheme.primary) },
-                            leadingContent = { Icon(Icons.Default.PersonAdd, null, tint = MaterialTheme.colorScheme.primary) },
+                            leadingContent = { Icon(Icons.Rounded.PersonAdd, null, tint = MaterialTheme.colorScheme.primary) },
                             modifier = Modifier.clickable { scope.launch { runCatching { repo.subscribe(chat.id) } } },
                         )
                     } else if (chat.myRole != "owner") {
                         ListItem(
                             headlineContent = { Text("Отписаться", color = MaterialTheme.colorScheme.error) },
-                            leadingContent = { Icon(Icons.AutoMirrored.Filled.ExitToApp, null, tint = MaterialTheme.colorScheme.error) },
+                            leadingContent = { Icon(Icons.AutoMirrored.Rounded.ExitToApp, null, tint = MaterialTheme.colorScheme.error) },
                             modifier = Modifier.clickable { scope.launch { runCatching { repo.leave(chat.id) }.onSuccess { onLeft() } } },
                         )
                     }
@@ -555,7 +555,7 @@ fun ChatInfoScreen(
                 if (owner) item {
                     ListItem(
                         headlineContent = { Text("Добавить участников") },
-                        leadingContent = { Icon(Icons.Default.PersonAdd, null, tint = MaterialTheme.colorScheme.primary) },
+                        leadingContent = { Icon(Icons.Rounded.PersonAdd, null, tint = MaterialTheme.colorScheme.primary) },
                         modifier = Modifier.clickable(onClick = onAddMembers),
                     )
                 }
@@ -569,7 +569,7 @@ fun ChatInfoScreen(
                         trailingContent = {
                             if (owner && u.id != myId) IconButton(onClick = {
                                 scope.launch { runCatching { repo.removeMember(chat.id, u.id) } }
-                            }) { Icon(Icons.Default.PersonRemove, "Исключить") }
+                            }) { Icon(Icons.Rounded.PersonRemove, "Исключить") }
                         },
                         modifier = Modifier.animateItem().clickable { onOpenProfile(u.id) },
                     )
@@ -577,7 +577,7 @@ fun ChatInfoScreen(
                 item {
                     ListItem(
                         headlineContent = { Text("Покинуть группу", color = MaterialTheme.colorScheme.error) },
-                        leadingContent = { Icon(Icons.AutoMirrored.Filled.ExitToApp, null, tint = MaterialTheme.colorScheme.error) },
+                        leadingContent = { Icon(Icons.AutoMirrored.Rounded.ExitToApp, null, tint = MaterialTheme.colorScheme.error) },
                         modifier = Modifier.clickable {
                             scope.launch { runCatching { repo.removeMember(chat.id, myId!!) }.onSuccess { onLeft() } }
                         },

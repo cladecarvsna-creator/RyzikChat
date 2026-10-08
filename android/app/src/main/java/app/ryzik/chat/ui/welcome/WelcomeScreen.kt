@@ -35,7 +35,12 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.WavingHand
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -64,14 +69,14 @@ import kotlin.math.absoluteValue
 import kotlin.math.cos
 import kotlin.math.sin
 
-private data class IntroPage(val emoji: String, val title: String, val text: String)
+private data class IntroPage(val icon: androidx.compose.ui.graphics.vector.ImageVector, val title: String, val text: String)
 
 private val pages = listOf(
-    IntroPage("👋", "Привет!", "Это RyzikChat — мессенджер, в котором приятно общаться. Листай, расскажем, что тут есть."),
-    IntroPage("⚡", "Быстро и живо", "Сообщения прилетают мгновенно, а интерфейс оживает от каждого касания: анимации, реакции, «печатает…»."),
-    IntroPage("🔒", "Только для вас", "Сквозное шифрование, как в WhatsApp: прочитать переписку можете только вы и собеседник. Даже наш сервер — нет."),
-    IntroPage("📎", "Фото, видео и файлы", "Отправляйте что угодно и сохраняйте важное в «Избранное», чтобы ничего не потерять."),
-    IntroPage("🎨", "Ваш стиль", "Material You подбирает цвета под ваши обои. А особые бейджи рядом с именем выдаёт только администрация."),
+    IntroPage(Icons.Rounded.WavingHand, "Привет!", "Это RyzikChat — мессенджер, в котором приятно общаться. Листай, расскажем, что тут есть."),
+    IntroPage(Icons.Rounded.Bolt, "Быстро и живо", "Сообщения прилетают мгновенно, а интерфейс оживает от каждого касания: анимации, реакции, «печатает…»."),
+    IntroPage(Icons.Rounded.Lock, "Только для вас", "Сквозное шифрование, как в WhatsApp: прочитать переписку можете только вы и собеседник. Даже наш сервер — нет."),
+    IntroPage(Icons.Rounded.AttachFile, "Фото, видео и файлы", "Отправляйте что угодно и сохраняйте важное в «Избранное», чтобы ничего не потерять."),
+    IntroPage(Icons.Rounded.Palette, "Ваш стиль", "Material You подбирает цвета под ваши обои. А особые бейджи рядом с именем выдаёт только администрация."),
 )
 
 @Composable
@@ -119,7 +124,7 @@ fun WelcomeScreen(onLogin: () -> Unit) {
                         contentAlignment = Alignment.Center,
                     ) {
                         androidx.compose.material3.IconButton(onClick = { scope.launch { pager.animateScrollToPage(pager.currentPage + 1) } }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowForward, "Далее", tint = scheme.onSecondaryContainer)
+                            Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Далее", tint = scheme.onSecondaryContainer)
                         }
                     }
                 }
@@ -194,10 +199,11 @@ private fun IntroPageContent(page: IntroPage, offset: Float, index: Int) {
                     )
                 }
             }
-            Text(
-                page.emoji,
-                fontSize = 84.sp,
-                modifier = Modifier.graphicsLayer {
+            Icon(
+                page.icon,
+                null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(88.dp).graphicsLayer {
                     if (index == 0) {
                         rotationZ = wave
                         transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.7f, 0.9f)

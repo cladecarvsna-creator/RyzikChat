@@ -20,9 +20,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.rounded.CameraAlt
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -48,7 +48,7 @@ fun AvatarPicker(name: String, url: String?, size: Dp, busy: Boolean = false, en
     Box(
         Modifier
             .size(size)
-            .clip(CircleShape)
+            .clip(app.ryzik.chat.ui.components.AvatarShape)
             .clickable(enabled = enabled && !busy) { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
     ) {
         Avatar(name.ifBlank { "?" }, url, size)
@@ -61,7 +61,7 @@ fun AvatarPicker(name: String, url: String?, size: Dp, busy: Boolean = false, en
             contentAlignment = Alignment.Center,
         ) {
             if (busy) CircularProgressIndicator(Modifier.size(size * 0.2f), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-            else Icon(Icons.Default.CameraAlt, "Выбрать фото", Modifier.size(size * 0.18f), tint = MaterialTheme.colorScheme.onPrimary)
+            else Icon(Icons.Rounded.CameraAlt, "Выбрать фото", Modifier.size(size * 0.18f), tint = MaterialTheme.colorScheme.onPrimary)
         }
     }
 }
@@ -73,13 +73,13 @@ fun VisibilitySelector(isPublic: Boolean, channel: Boolean, onChange: (Boolean) 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         VisibilityOption(
             selected = isPublic,
-            icon = Icons.Default.Public,
+            icon = Icons.Rounded.Public,
             title = if (channel) "Публичный канал" else "Публичная группа",
             text = "Любой найдёт $what через поиск и сможет ${if (channel) "подписаться" else "вступить"}.",
         ) { onChange(true) }
         VisibilityOption(
             selected = !isPublic,
-            icon = Icons.Default.Lock,
+            icon = Icons.Rounded.Lock,
             title = if (channel) "Частный канал" else "Частная группа",
             text = "В поиске не виден. ${if (channel) "Подписаться" else "Вступить"} можно только по вашей ссылке-приглашению.",
         ) { onChange(false) }

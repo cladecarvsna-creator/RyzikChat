@@ -22,7 +22,12 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.ExperimentalTextApi
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
+import app.ryzik.chat.R
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.ColorUtils
@@ -116,23 +121,46 @@ fun schemeFromSeed(seed: Color, dark: Boolean): ColorScheme {
     )
 }
 
-private val AppTypography = Typography().let { t ->
+/** Nunito — мягкий округлый шрифт (OFL). Один вариативный файл, толщины задаём осью wght. */
+@OptIn(ExperimentalTextApi::class)
+private fun nunito(weight: Int) = Font(
+    R.font.nunito,
+    FontWeight(weight),
+    variationSettings = FontVariation.Settings(FontVariation.weight(weight)),
+)
+
+val Rounded = FontFamily(nunito(400), nunito(500), nunito(600), nunito(700), nunito(800))
+
+private fun TextStyle.rounded() = copy(fontFamily = Rounded)
+
+private val AppTypography = Typography().let { base ->
+    val t = base.copy(
+        displayLarge = base.displayLarge.rounded(), displayMedium = base.displayMedium.rounded(), displaySmall = base.displaySmall.rounded(),
+        headlineLarge = base.headlineLarge.rounded(), headlineMedium = base.headlineMedium.rounded(), headlineSmall = base.headlineSmall.rounded(),
+        titleLarge = base.titleLarge.rounded(), titleMedium = base.titleMedium.rounded(), titleSmall = base.titleSmall.rounded(),
+        bodyLarge = base.bodyLarge.rounded(), bodyMedium = base.bodyMedium.rounded(), bodySmall = base.bodySmall.rounded(),
+        labelLarge = base.labelLarge.rounded(), labelMedium = base.labelMedium.rounded(), labelSmall = base.labelSmall.rounded(),
+    )
     t.copy(
-        displaySmall = t.displaySmall.copy(fontWeight = FontWeight.Bold),
-        headlineLarge = t.headlineLarge.copy(fontWeight = FontWeight.Bold),
-        headlineMedium = t.headlineMedium.copy(fontWeight = FontWeight.SemiBold),
-        titleLarge = t.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-        titleMedium = t.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-        labelLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 15.sp, letterSpacing = 0.1.sp),
+        displaySmall = t.displaySmall.copy(fontWeight = FontWeight.ExtraBold),
+        headlineLarge = t.headlineLarge.copy(fontWeight = FontWeight.ExtraBold),
+        headlineMedium = t.headlineMedium.copy(fontWeight = FontWeight.Bold),
+        headlineSmall = t.headlineSmall.copy(fontWeight = FontWeight.Bold),
+        titleLarge = t.titleLarge.copy(fontWeight = FontWeight.Bold),
+        titleMedium = t.titleMedium.copy(fontWeight = FontWeight.Bold),
+        titleSmall = t.titleSmall.copy(fontWeight = FontWeight.Bold),
+        bodyLarge = t.bodyLarge.copy(fontWeight = FontWeight.Medium),
+        bodyMedium = t.bodyMedium.copy(fontWeight = FontWeight.Medium),
+        labelLarge = TextStyle(fontFamily = Rounded, fontWeight = FontWeight.Bold, fontSize = 15.sp, letterSpacing = 0.1.sp),
     )
 }
 
 private val AppShapes = Shapes(
     extraSmall = RoundedCornerShape(8.dp),
-    small = RoundedCornerShape(12.dp),
-    medium = RoundedCornerShape(16.dp),
-    large = RoundedCornerShape(24.dp),
-    extraLarge = RoundedCornerShape(32.dp),
+    small = RoundedCornerShape(14.dp),
+    medium = RoundedCornerShape(20.dp),
+    large = RoundedCornerShape(28.dp),
+    extraLarge = RoundedCornerShape(36.dp),
 )
 
 @Composable

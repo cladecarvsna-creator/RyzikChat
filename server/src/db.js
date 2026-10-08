@@ -114,6 +114,10 @@ function migrate(db) {
   const cols = (table) => db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
   if (!cols('users').includes('is_premium')) db.exec('ALTER TABLE users ADD COLUMN is_premium INTEGER NOT NULL DEFAULT 0');
   if (!cols('users').includes('emoji_status')) db.exec('ALTER TABLE users ADD COLUMN emoji_status TEXT');
+  if (!cols('users').includes('twofa_hash')) {
+    db.exec('ALTER TABLE users ADD COLUMN twofa_hash TEXT');
+    db.exec('ALTER TABLE users ADD COLUMN twofa_hint TEXT');
+  }
   if (!cols('users').includes('profile_style')) db.exec('ALTER TABLE users ADD COLUMN profile_style TEXT');
   const chatsSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'chats'").get().sql;
   if (!chatsSql.includes("'channel'")) {
@@ -145,6 +149,7 @@ function migrate(db) {
     db.exec("UPDATE chats SET is_public = 1 WHERE type = 'channel'");
   }
   if (!cols('chats').includes('invite_code')) db.exec('ALTER TABLE chats ADD COLUMN invite_code TEXT');
+  if (!cols('chats').includes('wallpaper_file_id')) db.exec('ALTER TABLE chats ADD COLUMN wallpaper_file_id TEXT');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS chats_invite_code ON chats(invite_code)');
   if (!cols('users').includes('email')) {
     db.exec('ALTER TABLE users ADD COLUMN email TEXT');
@@ -162,6 +167,28 @@ function migrate(db) {
       blocked_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       created_at INTEGER NOT NULL,
       PRIMARY KEY (user_id, blocked_id)
+    );
+    CREATE TABLE IF NOT EXISTS sticker_packs (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS stickers (
+      id TEXT PRIMARY KEY,
+      pack_id TEXT NOT NULL REFERENCES sticker_packs(id) ON DELETE CASCADE,
+      file_id TEXT NOT NULL,
+      emoji TEXT,
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS stickers_pack ON stickers(pack_id);
+    CREATE INDEX IF NOT EXISTS stickers_file ON stickers(file_id);
+    CREATE TABLE IF NOT EXISTS user_sticker_packs (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      pack_id TEXT NOT NULL REFERENCES sticker_packs(id) ON DELETE CASCADE,
+      added_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, pack_id)
     );
     -- Коды подтверждения: вход с нового устройства и привязка почты.
     CREATE TABLE IF NOT EXISTS codes (

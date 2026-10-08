@@ -16,9 +16,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Campaign
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Campaign
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -63,7 +63,7 @@ fun NewChannelScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") } },
                 title = { Text("Новый канал") },
             )
         },
@@ -82,7 +82,7 @@ fun NewChannelScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
                     busy = false
                 }
             }) {
-                if (busy) CircularProgressIndicator(Modifier.size(24.dp)) else Icon(Icons.Default.Check, "Создать")
+                if (busy) CircularProgressIndicator(Modifier.size(24.dp)) else Icon(Icons.Rounded.Check, "Создать")
             }
         },
     ) { padding ->
@@ -94,7 +94,7 @@ fun NewChannelScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
             Box(Modifier.graphicsLayer { scaleX = pop; scaleY = pop }) {
                 if (title.isBlank() && avatar == null) {
                     AvatarPicker("", null, 96.dp) { avatar = it }
-                    Icon(Icons.Default.Campaign, null, Modifier.size(56.dp).align(Alignment.Center), tint = androidx.compose.ui.graphics.Color.White)
+                    Icon(Icons.Rounded.Campaign, null, Modifier.size(56.dp).align(Alignment.Center), tint = androidx.compose.ui.graphics.Color.White)
                 } else AvatarPicker(title, avatar?.toString(), 96.dp) { avatar = it }
             }
             OutlinedTextField(

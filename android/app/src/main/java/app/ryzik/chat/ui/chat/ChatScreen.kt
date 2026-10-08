@@ -1,15 +1,20 @@
 package app.ryzik.chat.ui.chat
 
+import androidx.compose.material.icons.rounded.EmojiEmotions
+import androidx.compose.material.icons.rounded.HideImage
+import androidx.compose.material.icons.rounded.Wallpaper
+import androidx.compose.material.icons.rounded.Campaign
+import androidx.compose.material.icons.rounded.WavingHand
 import app.ryzik.chat.notify.Notifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.PersonAdd
+import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material3.ButtonDefaults
 import kotlinx.coroutines.delay
 import app.ryzik.chat.ui.components.formatDuration
@@ -31,12 +36,12 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Button
-import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CropSquare
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Videocam
-import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.automirrored.rounded.ExitToApp
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.CropSquare
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.Videocam
+import androidx.compose.material.icons.rounded.Call
 import androidx.core.content.ContextCompat
 import android.content.pm.PackageManager
 import android.Manifest
@@ -86,26 +91,26 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
-import androidx.compose.material.icons.automirrored.filled.Reply
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.NotificationsOff
-import androidx.compose.material.icons.filled.Photo
-import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
+import androidx.compose.material.icons.automirrored.rounded.Reply
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.NotificationsOff
+import androidx.compose.material.icons.rounded.Photo
+import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.DropdownMenu
@@ -196,6 +201,7 @@ fun ChatScreen(
     var forwarding by remember { mutableStateOf<UiMessage?>(null) }
     var showAttach by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
+    var showStickers by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val openedAt = remember { System.currentTimeMillis() }
     var lastTypingSent by remember { mutableLongStateOf(0L) }
@@ -295,6 +301,9 @@ fun ChatScreen(
         uris.forEachIndexed { i, uri -> repo.sendFile(chatId, uri, if (i == 0) input else "", replyTo = replyTo?.id) }
         if (uris.isNotEmpty()) { input = ""; replyTo = null }
     }
+    val wallpaperPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
+        if (uri != null) scope.launch { runCatching { repo.setWallpaper(chatId, uri) }.onFailure { error = it.userMessage() } }
+    }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
         uris.forEach { repo.sendFile(chatId, it, "", asType = "file", replyTo = replyTo?.id) }
         if (uris.isNotEmpty()) replyTo = null
@@ -328,7 +337,21 @@ fun ChatScreen(
     val barPrefs = remember { context.getSharedPreferences("contact_bar", Context.MODE_PRIVATE) }
     var contactBarHidden by remember(chatId) { mutableStateOf(barPrefs.getBoolean(chatId, false)) }
 
+    if (showStickers) {
+        StickerSheet(chatId, replyTo?.id, onSent = { showStickers = false; replyTo = null }, onDismiss = { showStickers = false })
+    }
+
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(wallpaper))) {
+            // Обои из фото: одни на всех участников чата. Поверх — лёгкое затемнение, чтобы читался текст.
+            chat?.wallpaperFileId?.let { wp ->
+                coil.compose.AsyncImage(
+                    model = repo.avatarUrl(wp),
+                    contentDescription = null,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface.copy(alpha = 0.28f)))
+            }
             Box(Modifier.fillMaxSize()) {
                 LazyColumn(
                     state = listState,
@@ -391,7 +414,7 @@ fun ChatScreen(
                 ) {
                     BadgedBox(badge = { if (unread > 0) Badge { Text(unread.toString()) } }) {
                         SmallFloatingActionButton(onClick = { scope.launch { listState.animateScrollToItem(0) } }) {
-                            Icon(Icons.Default.KeyboardArrowDown, "Вниз")
+                            Icon(Icons.Rounded.KeyboardArrowDown, "Вниз")
                         }
                     }
                 }
@@ -419,7 +442,7 @@ fun ChatScreen(
                     .padding(horizontal = 8.dp, vertical = 6.dp),
             ) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    FloatingCircle(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") }
+                    FloatingCircle(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") }
                     Spacer(Modifier.width(8.dp))
                     Surface(
                         onClick = onOpenInfo,
@@ -432,7 +455,7 @@ fun ChatScreen(
                             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                                    if (chat?.isService == true) Icon(Icons.Default.Verified, "Официальный чат", Modifier.padding(start = 4.dp).size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                                    if (chat?.isService == true) Icon(Icons.Rounded.Verified, "Официальный чат", Modifier.padding(start = 4.dp).size(16.dp), tint = MaterialTheme.colorScheme.primary)
                                     if (peer != null) BadgeIcons(peer.badges, peer.isAdmin, 16.dp, peer.isPremium, peer.emojiStatus)
                                 }
                             AnimatedContent(
@@ -464,7 +487,7 @@ fun ChatScreen(
                             }
                             }
                             if (chat?.type == "direct" && peer != null && !chat.peerBlocked) {
-                                IconButton(onClick = { startCall(false) }) { Icon(Icons.Default.Call, "Звонок", tint = MaterialTheme.colorScheme.primary) }
+                                IconButton(onClick = { startCall(false) }) { Icon(Icons.Rounded.Call, "Звонок", tint = MaterialTheme.colorScheme.primary) }
                             } else Spacer(Modifier.width(12.dp))
                         }
                     }
@@ -491,32 +514,49 @@ fun ChatScreen(
                         DropdownMenu(showMenu, onDismissRequest = { showMenu = false }) {
                             DropdownMenuItem(
                                 text = { Text(if (chat?.type == "direct") "Профиль" else "Информация") },
-                                leadingIcon = { Icon(Icons.Default.Info, null) },
+                                leadingIcon = { Icon(Icons.Rounded.Info, null) },
                                 onClick = { showMenu = false; onOpenInfo() },
                             )
                             if (chat?.type == "direct" && peer != null && !chat.peerBlocked) {
                                 DropdownMenuItem(
                                     text = { Text("Видеозвонок") },
-                                    leadingIcon = { Icon(Icons.Default.Videocam, null) },
+                                    leadingIcon = { Icon(Icons.Rounded.Videocam, null) },
                                     onClick = { showMenu = false; startCall(true) },
+                                )
+                            }
+                            val canWallpaper = chat != null && !chat.isService &&
+                                (chat.type == "direct" || chat.type == "saved" || chat.myRole == "owner" || chat.myRole == "admin")
+                            if (canWallpaper) {
+                                DropdownMenuItem(
+                                    text = { Text("Обои чата") },
+                                    leadingIcon = { Icon(Icons.Rounded.Wallpaper, null) },
+                                    onClick = {
+                                        showMenu = false
+                                        wallpaperPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                    },
+                                )
+                                if (chat?.wallpaperFileId != null) DropdownMenuItem(
+                                    text = { Text("Убрать обои") },
+                                    leadingIcon = { Icon(Icons.Rounded.HideImage, null) },
+                                    onClick = { showMenu = false; scope.launch { runCatching { repo.setWallpaper(chatId, null) }.onFailure { error = it.userMessage() } } },
                                 )
                             }
                             if (chat != null) {
                                 DropdownMenuItem(
                                     text = { Text(if (chat.muted) "Включить звук" else "Без звука") },
-                                    leadingIcon = { Icon(if (chat.muted) Icons.Default.Notifications else Icons.Default.NotificationsOff, null) },
+                                    leadingIcon = { Icon(if (chat.muted) Icons.Rounded.Notifications else Icons.Rounded.NotificationsOff, null) },
                                     onClick = { showMenu = false; scope.launch { runCatching { repo.setMuted(chatId, !chat.muted) } } },
                                 )
                                 DropdownMenuItem(
                                     text = { Text(if (chat.pinned) "Открепить чат" else "Закрепить чат") },
-                                    leadingIcon = { Icon(Icons.Default.PushPin, null) },
+                                    leadingIcon = { Icon(Icons.Rounded.PushPin, null) },
                                     onClick = { showMenu = false; scope.launch { runCatching { repo.setPinned(chatId, !chat.pinned) } } },
                                 )
                             }
                             if (chat?.type == "direct" && peer != null && !peer.isService) {
                                 DropdownMenuItem(
                                     text = { Text(if (chat.peerBlocked) "Разблокировать" else "Заблокировать", color = if (chat.peerBlocked) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error) },
-                                    leadingIcon = { Icon(Icons.Default.Block, null, tint = if (chat.peerBlocked) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error) },
+                                    leadingIcon = { Icon(Icons.Rounded.Block, null, tint = if (chat.peerBlocked) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error) },
                                     onClick = {
                                         showMenu = false
                                         scope.launch { runCatching { repo.setBlocked(peer.id, !chat.peerBlocked) }.onFailure { error = it.userMessage() } }
@@ -526,7 +566,7 @@ fun ChatScreen(
                             if (chat?.type == "channel" && chat.myRole != null && chat.myRole != "owner" && !chat.isService) {
                                 DropdownMenuItem(
                                     text = { Text("Отписаться") },
-                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ExitToApp, null) },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ExitToApp, null) },
                                     onClick = {
                                         showMenu = false
                                         scope.launch { runCatching { repo.leave(chatId) }.onSuccess { onBack() }.onFailure { error = it.userMessage() } }
@@ -551,7 +591,7 @@ fun ChatScreen(
                                 onClick = { peer?.let { p -> scope.launch { runCatching { repo.setContact(p.id, true) }.onFailure { error = it.userMessage() } } } },
                                 modifier = Modifier.weight(1f),
                             ) {
-                                Icon(Icons.Default.PersonAdd, null, Modifier.size(18.dp))
+                                Icon(Icons.Rounded.PersonAdd, null, Modifier.size(18.dp))
                                 Spacer(Modifier.width(6.dp))
                                 Text("Добавить контакт", maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
@@ -560,12 +600,12 @@ fun ChatScreen(
                                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
                                 modifier = Modifier.weight(1f),
                             ) {
-                                Icon(Icons.Default.Block, null, Modifier.size(18.dp))
+                                Icon(Icons.Rounded.Block, null, Modifier.size(18.dp))
                                 Spacer(Modifier.width(6.dp))
                                 Text("Заблокировать", maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             IconButton(onClick = { contactBarHidden = true; barPrefs.edit().putBoolean(chatId, true).apply() }) {
-                                Icon(Icons.Default.Close, "Скрыть", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Icon(Icons.Rounded.Close, "Скрыть", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
@@ -601,7 +641,7 @@ fun ChatScreen(
                             modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
                         ) {
                         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(if (editing != null) Icons.Default.Edit else Icons.AutoMirrored.Filled.Reply, null, tint = MaterialTheme.colorScheme.primary)
+                            Icon(if (editing != null) Icons.Rounded.Edit else Icons.AutoMirrored.Rounded.Reply, null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(12.dp))
                             if (target != null) {
                                 ReplyQuote(
@@ -612,18 +652,18 @@ fun ChatScreen(
                                 )
                             }
                             IconButton(onClick = { if (editing != null) input = ""; replyTo = null; editing = null }) {
-                                Icon(Icons.Default.Close, "Отмена")
+                                Icon(Icons.Rounded.Close, "Отмена")
                             }
                         }
                         }
                     }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                         Box {
-                            FloatingCircle(onClick = { showAttach = true }) { Icon(Icons.Default.AttachFile, "Прикрепить") }
+                            FloatingCircle(onClick = { showAttach = true }) { Icon(Icons.Rounded.AttachFile, "Прикрепить") }
                             DropdownMenu(showAttach, onDismissRequest = { showAttach = false }) {
                                 DropdownMenuItem(
                                     text = { Text("Фото или видео") },
-                                    leadingIcon = { Icon(Icons.Default.Photo, null) },
+                                    leadingIcon = { Icon(Icons.Rounded.Photo, null) },
                                     onClick = {
                                         showAttach = false
                                         photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
@@ -631,8 +671,13 @@ fun ChatScreen(
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Файл") },
-                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.InsertDriveFile, null) },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Rounded.InsertDriveFile, null) },
                                     onClick = { showAttach = false; filePicker.launch(arrayOf("*/*")) },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Стикеры") },
+                                    leadingIcon = { Icon(Icons.Rounded.EmojiEmotions, null) },
+                                    onClick = { showAttach = false; showStickers = true },
                                 )
                             }
                         }
@@ -680,7 +725,7 @@ fun ChatScreen(
                             transitionSpec = { (scaleIn(spring(Spring.DampingRatioMediumBouncy)) + fadeIn()) togetherWith (scaleOut() + fadeOut()) },
                         ) { canSend ->
                             if (canSend) FilledIconButton(onClick = { send() }, modifier = Modifier.size(52.dp)) {
-                                Icon(if (editing != null) Icons.Default.Check else Icons.AutoMirrored.Filled.Send, "Отправить")
+                                Icon(if (editing != null) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.Send, "Отправить")
                             } else RecordButton(
                                 mode = recordMode,
                                 recording = recordingVoice || squareRecorder.active,
@@ -753,19 +798,19 @@ fun ChatScreen(
                 HorizontalDivider()
             }
             if (m.status == SendStatus.Failed) {
-                SheetItem("Отправить ещё раз", Icons.Default.Refresh) { menuFor = null; repo.retry(m) }
+                SheetItem("Отправить ещё раз", Icons.Rounded.Refresh) { menuFor = null; repo.retry(m) }
             }
             if (!m.deleted && m.status == SendStatus.Sent) {
-                SheetItem("Ответить", Icons.AutoMirrored.Filled.Reply) { menuFor = null; editing = null; replyTo = m }
+                SheetItem("Ответить", Icons.AutoMirrored.Rounded.Reply) { menuFor = null; editing = null; replyTo = m }
             }
             if (!m.content?.text.isNullOrEmpty()) {
-                SheetItem("Копировать текст", Icons.Default.ContentCopy) {
+                SheetItem("Копировать текст", Icons.Rounded.ContentCopy) {
                     menuFor = null
                     copy(context, m.content!!.text)
                 }
             }
             if (mine && !m.deleted && m.status == SendStatus.Sent && m.content != null) {
-                SheetItem("Изменить", Icons.Default.Edit) {
+                SheetItem("Изменить", Icons.Rounded.Edit) {
                     menuFor = null
                     replyTo = null
                     editing = m
@@ -774,15 +819,15 @@ fun ChatScreen(
             }
             if (!m.deleted && m.content != null && m.status == SendStatus.Sent) {
                 if (chat?.type != "saved") {
-                    SheetItem("В Избранное", Icons.Default.Bookmark) { menuFor = null; repo.saveToFavorites(m) }
+                    SheetItem("В Избранное", Icons.Rounded.Bookmark) { menuFor = null; repo.saveToFavorites(m) }
                 }
-                SheetItem("Переслать", Icons.Default.Share) { menuFor = null; forwarding = m }
+                SheetItem("Переслать", Icons.Rounded.Share) { menuFor = null; forwarding = m }
             }
             val me = (auth as? AuthState.LoggedIn)?.me
             val canDelete = mine || me?.isAdmin == true || chat?.myRole == "owner" || (chat?.type == "channel" && chat.myRole == "admin") ||
                 chat?.members?.any { it.user.id == myId && it.role == "owner" } == true
             if (!m.deleted && canDelete) {
-                SheetItem("Удалить", Icons.Default.Delete, danger = true) {
+                SheetItem("Удалить", Icons.Rounded.Delete, danger = true) {
                     menuFor = null
                     scope.launch { runCatching { repo.deleteMessage(m) }.onFailure { error = it.userMessage() } }
                 }
@@ -837,7 +882,7 @@ private fun EmptyChat(saved: Boolean, channel: Boolean = false) {
     Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
         Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.9f)) {
             Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(if (saved) "🔖" else if (channel) "📣" else "👋", fontSize = 56.sp)
+                app.ryzik.chat.ui.components.EmptyIcon(if (saved) Icons.Rounded.Bookmark else if (channel) Icons.Rounded.Campaign else Icons.Rounded.WavingHand)
                 Spacer(Modifier.height(8.dp))
                 Text(if (saved) "Избранное" else if (channel) "В канале пока нет постов" else "Пока тихо", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(4.dp))
@@ -878,7 +923,7 @@ private fun BlockedBar(onUnblock: () -> Unit) {
     Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 8.dp, vertical = 6.dp)) {
         Surface(shape = RoundedCornerShape(26.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
             Row(Modifier.padding(start = 20.dp, end = 4.dp, top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Block, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                Icon(Icons.Rounded.Block, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("Пользователь заблокирован", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                 TextButton(onClick = onUnblock) { Text("Разблокировать") }
@@ -894,13 +939,13 @@ private fun ChannelBar(subscribed: Boolean, joinText: String, muted: Boolean, on
             AnimatedContent(subscribed, label = "sub", transitionSpec = { (scaleIn(spring(Spring.DampingRatioMediumBouncy)) + fadeIn()) togetherWith fadeOut() }) { sub ->
                 if (!sub) {
                     Button(onClick = onSubscribe, modifier = Modifier.fillMaxWidth().height(48.dp)) {
-                        Icon(Icons.Default.Add, null)
+                        Icon(Icons.Rounded.Add, null)
                         Spacer(Modifier.width(8.dp))
                         Text(joinText)
                     }
                 } else {
                     TextButton(onClick = onToggleMute, modifier = Modifier.fillMaxWidth().height(48.dp)) {
-                        Icon(if (muted) Icons.Default.Notifications else Icons.Default.NotificationsOff, null)
+                        Icon(if (muted) Icons.Rounded.Notifications else Icons.Rounded.NotificationsOff, null)
                         Spacer(Modifier.width(8.dp))
                         Text(if (muted) "Включить звук" else "Выключить звук")
                     }
@@ -1006,7 +1051,7 @@ private fun RecordButton(
                 transitionSpec = { (scaleIn(spring(Spring.DampingRatioMediumBouncy)) + fadeIn()) togetherWith (scaleOut() + fadeOut()) },
             ) { m ->
                 Icon(
-                    if (m == "voice") Icons.Default.Mic else Icons.Default.CropSquare,
+                    if (m == "voice") Icons.Rounded.Mic else Icons.Rounded.CropSquare,
                     if (m == "voice") "Голосовое" else "Квадратик",
                     tint = MaterialTheme.colorScheme.onPrimary,
                 )

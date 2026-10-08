@@ -94,11 +94,41 @@ class ApiClient(
             put("device", device)
         }, LoginResponse.serializer())
 
-    suspend fun confirmLogin(challengeId: String, code: String) =
-        call("POST", "/api/auth/login/confirm", buildJsonObject {
+    suspend fun login2fa(challengeId: String, password: String) =
+        call("POST", "/api/auth/login/2fa", buildJsonObject {
             put("challengeId", challengeId)
-            put("code", code)
+            put("password", password)
         }, AuthResponse.serializer())
+
+    // ---------- двухэтапная проверка ----------
+
+    suspend fun set2fa(accountPassword: String, currentPassword: String?, password: String, hint: String) =
+        call("PUT", "/api/me/2fa", buildJsonObject {
+            put("accountPassword", accountPassword)
+            if (currentPassword != null) put("currentPassword", currentPassword)
+            put("password", password)
+            put("hint", hint)
+        }, User.serializer())
+
+    suspend fun disable2fa(password: String) =
+        call("DELETE", "/api/me/2fa", buildJsonObject { put("password", password) }, User.serializer())
+
+    // ---------- обои и стикеры ----------
+
+    suspend fun setWallpaper(chatId: String, fileId: String?) =
+        call("PUT", "/api/chats/$chatId/wallpaper", buildJsonObject { put("fileId", fileId) }, Chat.serializer())
+
+    suspend fun stickerPacks() = call("GET", "/api/stickers", null, ListSerializer(StickerPack.serializer()))
+    suspend fun stickerPack(id: String) = call("GET", "/api/stickers/packs/$id", null, StickerPack.serializer())
+    suspend fun createStickerPack(title: String) =
+        call("POST", "/api/stickers/packs", buildJsonObject { put("title", title) }, StickerPack.serializer())
+    suspend fun deleteStickerPack(id: String) = call("DELETE", "/api/stickers/packs/$id", null, kotlinx.serialization.json.JsonObject.serializer())
+    suspend fun addSticker(packId: String, fileId: String, emoji: String) =
+        call("POST", "/api/stickers/packs/$packId/stickers", buildJsonObject { put("fileId", fileId); put("emoji", emoji) }, StickerPack.serializer())
+    suspend fun removeSticker(packId: String, stickerId: String) =
+        call("DELETE", "/api/stickers/packs/$packId/stickers/$stickerId", null, StickerPack.serializer())
+    suspend fun setPackAdded(id: String, added: Boolean) =
+        call(if (added) "PUT" else "DELETE", "/api/stickers/packs/$id/added", null, StickerPack.serializer())
 
     // ---------- почта ----------
 

@@ -35,15 +35,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.CallEnd
-import androidx.compose.material.icons.filled.Cameraswitch
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.MicOff
-import androidx.compose.material.icons.filled.Videocam
-import androidx.compose.material.icons.filled.VideocamOff
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.rounded.Call
+import androidx.compose.material.icons.rounded.CallEnd
+import androidx.compose.material.icons.rounded.Cameraswitch
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.MicOff
+import androidx.compose.material.icons.rounded.Videocam
+import androidx.compose.material.icons.rounded.VideocamOff
+import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -114,7 +114,7 @@ fun CallScreen() {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Lock, null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(14.dp))
+                Icon(Icons.Rounded.Lock, null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(14.dp))
                 Spacer(Modifier.width(4.dp))
                 Text("Сквозное шифрование", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelMedium)
             }
@@ -147,8 +147,8 @@ fun CallScreen() {
             ) { incoming ->
                 if (incoming) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        RoundButton(Icons.Default.CallEnd, "Отклонить", Color(0xFFE53935)) { calls.decline() }
-                        BouncingAccept(if (state.video) Icons.Default.Videocam else Icons.Default.Call) {
+                        RoundButton(Icons.Rounded.CallEnd, "Отклонить", Color(0xFFE53935)) { calls.decline() }
+                        BouncingAccept(if (state.video) Icons.Rounded.Videocam else Icons.Rounded.Call) {
                             val perms = if (state.video) arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA) else arrayOf(Manifest.permission.RECORD_AUDIO)
                             acceptPermission.launch(perms)
                         }
@@ -156,18 +156,18 @@ fun CallScreen() {
                 } else {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                            ToggleButton(if (state.muted) Icons.Default.MicOff else Icons.Default.Mic, if (state.muted) "Микрофон выкл." else "Микрофон", state.muted) { calls.toggleMute() }
-                            ToggleButton(Icons.Default.VolumeUp, "Динамик", state.speaker) { calls.toggleSpeaker() }
+                            ToggleButton(if (state.muted) Icons.Rounded.MicOff else Icons.Rounded.Mic, if (state.muted) "Микрофон выкл." else "Микрофон", state.muted) { calls.toggleMute() }
+                            ToggleButton(Icons.Rounded.VolumeUp, "Динамик", state.speaker) { calls.toggleSpeaker() }
                             if (state.video) {
-                                ToggleButton(if (state.cameraOn) Icons.Default.Videocam else Icons.Default.VideocamOff, "Камера", !state.cameraOn) { calls.toggleCamera() }
-                                ToggleButton(Icons.Default.Cameraswitch, "Сменить", false) { calls.switchCamera() }
+                                ToggleButton(if (state.cameraOn) Icons.Rounded.Videocam else Icons.Rounded.VideocamOff, "Камера", !state.cameraOn) { calls.toggleCamera() }
+                                ToggleButton(Icons.Rounded.Cameraswitch, "Сменить", false) { calls.switchCamera() }
                             }
                         }
                         Spacer(Modifier.height(28.dp))
                         if (state.phase == CallPhase.Ended) {
-                            RoundButton(Icons.Default.CallEnd, "Закрыть", Color.White.copy(alpha = 0.2f)) { calls.dismiss() }
+                            RoundButton(Icons.Rounded.CallEnd, "Закрыть", Color.White.copy(alpha = 0.2f)) { calls.dismiss() }
                         } else {
-                            RoundButton(Icons.Default.CallEnd, "Завершить", Color(0xFFE53935)) { calls.hangup() }
+                            RoundButton(Icons.Rounded.CallEnd, "Завершить", Color(0xFFE53935)) { calls.hangup() }
                         }
                     }
                 }

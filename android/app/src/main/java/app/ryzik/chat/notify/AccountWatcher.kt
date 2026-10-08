@@ -140,7 +140,7 @@ class AccountWatcher(private val context: Context, val account: SavedAccount) {
                 if (isGroup && !s.groupNotifications) return
                 val sender = if (c.type == "channel") title(c) else name(m.senderId)
                 val text = if (s.notificationPreview) {
-                    decrypt(m)?.let { RyzikApp.instance.repo.previewText(m.type, it).ifBlank { "Сообщение" } } ?: "🔒 Сообщение"
+                    decrypt(m)?.let { RyzikApp.instance.repo.previewText(m.type, it).ifBlank { "Сообщение" } } ?: "Сообщение"
                 } else "Новое сообщение"
                 Notifier.showMessage(
                     context, chatId = c.id, chatTitle = title(c), isGroup = isGroup,

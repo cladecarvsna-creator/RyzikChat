@@ -32,14 +32,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.CloudUpload
-import androidx.compose.material.icons.filled.CropSquare
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.CloudUpload
+import androidx.compose.material.icons.rounded.CropSquare
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -96,7 +96,7 @@ fun PremiumScreen(onBack: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Row(Modifier.fillMaxWidth()) {
-                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад", tint = Color.White) }
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад", tint = Color.White) }
             }
             Box(Modifier.size(200.dp), contentAlignment = Alignment.Center) {
                 // Вращающиеся искры вокруг звезды
@@ -115,12 +115,12 @@ fun PremiumScreen(onBack: () -> Unit) {
                         .clip(CircleShape)
                         .background(Brush.linearGradient(PremiumGradient)),
                     contentAlignment = Alignment.Center,
-                ) { Icon(Icons.Default.Star, null, tint = Color.White, modifier = Modifier.size(64.dp)) }
+                ) { Icon(Icons.Rounded.Star, null, tint = Color.White, modifier = Modifier.size(64.dp)) }
             }
             Text("RyzikChat Премиум", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             Text(
-                if (me?.isPremium == true) "У вас уже есть Премиум. Спасибо за поддержку! ✨"
+                if (me?.isPremium == true) "У вас уже есть Премиум. Спасибо за поддержку!"
                 else "Больше возможностей и звезда рядом с именем",
                 color = Color.White.copy(alpha = 0.8f),
                 textAlign = TextAlign.Center,
@@ -129,13 +129,13 @@ fun PremiumScreen(onBack: () -> Unit) {
             Spacer(Modifier.height(24.dp))
 
             val perks = listOf(
-                Perk(Icons.Default.Star, "Звезда или эмодзи-статус", "Переливающаяся звезда у имени или любой эмодзи на ваш выбор"),
-                Perk(Icons.Default.Palette, "Оформление профиля", "Цвет и обложка шапки, узор из эмодзи с эффектами, рамка аватарки, цвет и шрифт имени"),
-                Perk(Icons.Default.CloudUpload, "Файлы до 2 ГБ", "Вместо 200 МБ без Премиума"),
-                Perk(Icons.Default.CropSquare, "Длинные квадратики", "Видеосообщения до 2 минут вместо 1"),
-                Perk(Icons.Default.Mic, "Длинные голосовые", "До 30 минут вместо 10"),
-                Perk(Icons.Default.Palette, "Особые цвета", "Эксклюзивные цвета оформления приложения"),
-                Perk(Icons.Default.Verified, "Поддержка проекта", "Вы помогаете RyzikChat развиваться"),
+                Perk(Icons.Rounded.Star, "Звезда или эмодзи-статус", "Переливающаяся звезда у имени или любой эмодзи на ваш выбор"),
+                Perk(Icons.Rounded.Palette, "Оформление профиля", "Цвет и обложка шапки, узор из эмодзи с эффектами, рамка аватарки, цвет и шрифт имени"),
+                Perk(Icons.Rounded.CloudUpload, "Файлы до 2 ГБ", "Вместо 200 МБ без Премиума"),
+                Perk(Icons.Rounded.CropSquare, "Длинные квадратики", "Видеосообщения до 2 минут вместо 1"),
+                Perk(Icons.Rounded.Mic, "Длинные голосовые", "До 30 минут вместо 10"),
+                Perk(Icons.Rounded.Palette, "Особые цвета", "Эксклюзивные цвета оформления приложения"),
+                Perk(Icons.Rounded.Verified, "Поддержка проекта", "Вы помогаете RyzikChat развиваться"),
             )
             perks.forEachIndexed { i, p -> PerkRow(p, i) }
 
@@ -163,7 +163,7 @@ fun PremiumScreen(onBack: () -> Unit) {
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2AABEE), contentColor = Color.White),
                             modifier = Modifier.fillMaxWidth().height(52.dp),
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.Send, null)
+                            Icon(Icons.AutoMirrored.Rounded.Send, null)
                             Spacer(Modifier.width(8.dp))
                             Text("Написать @$PREMIUM_CONTACT в Telegram")
                         }

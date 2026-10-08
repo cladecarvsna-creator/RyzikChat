@@ -100,7 +100,7 @@ class RyzikApp : Application() {
                     ?: runCatching { repo.loadUser(msg.senderId).displayName }.getOrNull()
                     ?: "Новое сообщение"
                 val text = if (s.notificationPreview) {
-                    msg.content?.let { repo.previewText(msg.type, it).ifBlank { "Сообщение" } } ?: "🔒 Сообщение"
+                    msg.content?.let { repo.previewText(msg.type, it).ifBlank { "Сообщение" } } ?: "Сообщение"
                 } else "Новое сообщение"
                 val isGroup = chat.type == "group" || chat.type == "channel"
                 Notifier.showMessage(

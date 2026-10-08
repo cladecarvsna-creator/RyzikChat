@@ -3,7 +3,7 @@ package app.ryzik.chat.ui.components
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -27,8 +27,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -61,7 +61,10 @@ private val avatarPalette = listOf(
     Color(0xFF43A047), Color(0xFFE91E63), Color(0xFFFFB300), Color(0xFF8D6E63),
 )
 
-/** Аватар: картинка, а если её нет — цветной круг с первыми буквами имени. */
+/** Форма аватарок в списках: скруглённый квадрат. */
+val AvatarShape = RoundedCornerShape(percent = 32)
+
+/** Аватар: картинка, а если её нет — цветной квадрат со скруглением и первыми буквами имени. */
 @Composable
 fun Avatar(
     name: String,
@@ -71,19 +74,20 @@ fun Avatar(
     online: Boolean = false,
     saved: Boolean = false,
     service: Boolean = false,
+    shape: androidx.compose.ui.graphics.Shape = AvatarShape,
 ) {
     Box(modifier.size(size)) {
         val base = if (service) MaterialTheme.colorScheme.primary else avatarPalette[abs(name.hashCode()) % avatarPalette.size]
         Box(
             Modifier
                 .size(size)
-                .clip(CircleShape)
+                .clip(shape)
                 .background(Brush.linearGradient(listOf(base, base.copy(alpha = 0.7f)))),
             contentAlignment = Alignment.Center,
         ) {
             when {
-                saved -> Icon(Icons.Default.Bookmark, null, tint = Color.White, modifier = Modifier.size(size * 0.5f))
-                service -> Icon(Icons.Default.Verified, null, tint = Color.White, modifier = Modifier.size(size * 0.55f))
+                saved -> Icon(Icons.Rounded.Bookmark, null, tint = Color.White, modifier = Modifier.size(size * 0.5f))
+                service -> Icon(Icons.Rounded.Verified, null, tint = Color.White, modifier = Modifier.size(size * 0.55f))
                 else -> Text(
                     initials(name),
                     color = Color.White,
@@ -92,7 +96,7 @@ fun Avatar(
                 )
             }
             if (url != null && !saved && !service) {
-                AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(size).clip(CircleShape))
+                AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(size).clip(shape))
             }
         }
         AnimatedVisibility(
@@ -112,6 +116,15 @@ fun Avatar(
             )
         }
     }
+}
+
+/** Большой значок в круге для пустых экранов (вместо эмодзи). */
+@Composable
+fun EmptyIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier) {
+    Box(
+        modifier.size(88.dp).clip(RoundedCornerShape(32.dp)).background(MaterialTheme.colorScheme.primaryContainer),
+        contentAlignment = Alignment.Center,
+    ) { Icon(icon, null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(44.dp)) }
 }
 
 fun initials(name: String): String {
@@ -135,7 +148,7 @@ fun BadgeIcons(badges: List<Badge>, isAdmin: Boolean = false, size: Dp = 18.dp, 
             // С Премиумом вместо звезды можно поставить свой эмодзи-статус.
             if (!emojiStatus.isNullOrBlank()) Text(emojiStatus, fontSize = (size.value * 0.9f).sp) else PremiumStar(size)
         }
-        if (isAdmin) Icon(Icons.Default.Verified, "Администратор", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(size))
+        if (isAdmin) Icon(Icons.Rounded.Verified, "Администратор", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(size))
         badges.take(3).forEach { b ->
             Box(
                 Modifier
@@ -163,8 +176,13 @@ fun BadgeChip(badge: Badge, modifier: Modifier = Modifier) {
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(badge.emoji, fontSize = 16.sp)
-        Spacer(Modifier.width(6.dp))
+        if (badge.id == "admin") {
+            Icon(Icons.Rounded.Verified, null, tint = color, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+        } else if (badge.emoji.isNotBlank()) {
+            Text(badge.emoji, fontSize = 16.sp)
+            Spacer(Modifier.width(6.dp))
+        }
         Text(badge.title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
     }
 }
@@ -262,7 +280,7 @@ fun PremiumStar(size: Dp = 18.dp) {
     val t = rememberInfiniteTransition(label = "star")
     val turn by t.animateFloat(0f, 1f, infiniteRepeatable(tween(3000, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "turn")
     Icon(
-        Icons.Default.Star,
+        Icons.Rounded.Star,
         "Премиум",
         modifier = Modifier
             .size(size)

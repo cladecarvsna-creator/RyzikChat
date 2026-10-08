@@ -29,15 +29,15 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
-import androidx.compose.material.icons.automirrored.filled.Reply
-import androidx.compose.material.icons.filled.Done
-import androidx.compose.material.icons.filled.DoneAll
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
+import androidx.compose.material.icons.automirrored.rounded.Reply
+import androidx.compose.material.icons.rounded.Done
+import androidx.compose.material.icons.rounded.DoneAll
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -143,7 +143,8 @@ fun MessageBubble(
     val emojiOnly = style.bigEmoji && msg.type == "text" && c != null && isEmojiOnly(c.text)
     val isSquare = (msg.type == "square" || (msg.type == "video" && c?.file?.square == true)) && c?.file != null && !msg.deleted
     val isMedia = (msg.type == "image" || msg.type == "video") && c?.file != null && !isSquare
-    val bare = emojiOnly || isSquare
+    val isSticker = msg.type == "sticker" && c?.sticker != null && !msg.deleted
+    val bare = emojiOnly || isSquare || isSticker
     val context = LocalContext.current
 
     Box(
@@ -189,7 +190,7 @@ fun MessageBubble(
                     .clip(CircleShape)
                     .background(scheme.secondaryContainer),
                 contentAlignment = Alignment.Center,
-            ) { Icon(Icons.AutoMirrored.Filled.Reply, null, Modifier.size(18.dp), tint = scheme.onSecondaryContainer) }
+            ) { Icon(Icons.AutoMirrored.Rounded.Reply, null, Modifier.size(18.dp), tint = scheme.onSecondaryContainer) }
         }
 
         Column(
@@ -208,6 +209,7 @@ fun MessageBubble(
                         when {
                             msg.status == SendStatus.Failed -> onRetry()
                             isSquare -> toggleSquare(context, msg)
+                            isSticker -> StickerViewer.open(c!!.sticker!!.packId)
                             isMedia -> onOpenMedia()
                         }
                     },
@@ -240,7 +242,7 @@ fun MessageBubble(
                 if (msg.replyTo != null) {
                     ReplyQuote(
                         name = repliedSender ?: "Сообщение",
-                        text = replied?.let { rm -> rm.content?.let { previewOf(rm.type, it.text, it.file) } ?: if (rm.deleted) "Удалено" else "🔒" } ?: "Сообщение",
+                        text = replied?.let { rm -> rm.content?.let { previewOf(rm.type, it.text, it.file) } ?: if (rm.deleted) "Удалено" else "Сообщение" } ?: "Сообщение",
                         accent = if (mine) scheme.primary else scheme.tertiary,
                         modifier = Modifier
                             .padding(start = 6.dp, end = 6.dp, top = 6.dp)
@@ -249,8 +251,13 @@ fun MessageBubble(
                 }
 
                 when {
-                    msg.deleted -> InfoText("🗑 Сообщение удалено", onBubble)
-                    c == null -> InfoText("🔒 Не удалось расшифровать", onBubble)
+                    msg.deleted -> InfoText("Сообщение удалено", onBubble)
+                    c == null -> InfoText("Не удалось расшифровать", onBubble)
+                    isSticker && c.sticker != null -> coil.compose.AsyncImage(
+                        model = app.ryzik.chat.RyzikApp.instance.repo.avatarUrl(c.sticker.fileId),
+                        contentDescription = "Стикер",
+                        modifier = Modifier.size(150.dp),
+                    )
                     isSquare && c.file != null -> SquareContent(msg, c.file, autoDownload)
                     msg.type == "image" && c.file != null -> MediaImage(msg, c.file, autoDownload)
                     msg.type == "video" && c.file != null -> MediaVideo(msg, c.file, autoDownload)
@@ -274,14 +281,28 @@ fun MessageBubble(
                         )
                         MetaRow(msg, mine, read, onBubble.copy(alpha = 0.65f), Modifier.align(Alignment.BottomEnd))
                     }
+                    // Ссылка на набор стикеров — кнопка, чтобы открыть его.
+                    STICKER_LINK.find(text)?.let { m ->
+                        Text(
+                            "Открыть набор стикеров",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (mine) scheme.onPrimary else scheme.onPrimaryContainer,
+                            modifier = Modifier
+                                .padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
+                                .clip(CircleShape)
+                                .background(if (mine) scheme.primary else scheme.primaryContainer)
+                                .clickable { StickerViewer.open(m.groupValues[1]) }
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                        )
+                    }
                 } else if (showMeta || msg.deleted) {
                     MetaRow(
                         msg, mine, read,
-                        if (isMedia || isSquare) Color.White else onBubble.copy(alpha = 0.65f),
+                        if (isMedia || isSquare || isSticker) Color.White else onBubble.copy(alpha = 0.65f),
                         Modifier
                             .align(Alignment.End)
                             .padding(6.dp)
-                            .then(if (isMedia || isSquare) Modifier.clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(alpha = 0.35f)).padding(horizontal = 6.dp, vertical = 2.dp) else Modifier),
+                            .then(if (isMedia || isSquare || isSticker) Modifier.clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(alpha = 0.35f)).padding(horizontal = 6.dp, vertical = 2.dp) else Modifier),
                     )
                 }
             }
@@ -356,9 +377,9 @@ private fun MetaRow(msg: UiMessage, mine: Boolean, read: Boolean, color: Color, 
         if (mine) {
             Spacer(Modifier.width(3.dp))
             val icon = when (msg.status) {
-                SendStatus.Sending -> Icons.Default.Schedule
-                SendStatus.Failed -> Icons.Default.ErrorOutline
-                SendStatus.Sent -> if (read) Icons.Default.DoneAll else Icons.Default.Done
+                SendStatus.Sending -> Icons.Rounded.Schedule
+                SendStatus.Failed -> Icons.Rounded.ErrorOutline
+                SendStatus.Sent -> if (read) Icons.Rounded.DoneAll else Icons.Rounded.Done
             }
             val tint = when {
                 msg.status == SendStatus.Failed -> MaterialTheme.colorScheme.error
@@ -462,11 +483,11 @@ private fun MediaOverlay(msg: UiMessage, file: FileRef, state: MediaState, ready
             contentAlignment = Alignment.Center,
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(Icons.Default.Download, "Скачать", tint = Color.White)
+                Icon(Icons.Rounded.Download, "Скачать", tint = Color.White)
             }
         }
         isVideo -> Box(Modifier.size(52.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.45f)), contentAlignment = Alignment.Center) {
-            Icon(Icons.Default.PlayArrow, "Смотреть", tint = Color.White, modifier = Modifier.size(32.dp))
+            Icon(Icons.Rounded.PlayArrow, "Смотреть", tint = Color.White, modifier = Modifier.size(32.dp))
         }
     }
     if (!ready && state !is MediaState.Loading && !uploading) {
@@ -512,7 +533,7 @@ private fun FileAttachment(msg: UiMessage, file: FileRef, color: Color, autoDown
                 CircularProgressIndicator(progress = { p }, modifier = Modifier.size(36.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 3.dp)
             } else {
                 Icon(
-                    if (local != null) Icons.AutoMirrored.Filled.InsertDriveFile else Icons.Default.Download,
+                    if (local != null) Icons.AutoMirrored.Rounded.InsertDriveFile else Icons.Rounded.Download,
                     null,
                     tint = MaterialTheme.colorScheme.onPrimary,
                 )
@@ -522,7 +543,7 @@ private fun FileAttachment(msg: UiMessage, file: FileRef, color: Color, autoDown
         Column(Modifier.widthIn(max = 200.dp)) {
             Text(file.name, color = color, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Lock, null, Modifier.size(11.dp), tint = color.copy(alpha = 0.6f))
+                Icon(Icons.Rounded.Lock, null, Modifier.size(11.dp), tint = color.copy(alpha = 0.6f))
                 Spacer(Modifier.width(3.dp))
                 Text(formatSize(file.size), color = color.copy(alpha = 0.7f), style = MaterialTheme.typography.labelMedium)
             }
@@ -547,13 +568,16 @@ fun openFile(context: android.content.Context, local: java.io.File, file: FileRe
 }
 
 fun previewOf(type: String, text: String, file: FileRef?): String = when (type) {
-    "image" -> "🖼 Фото" + if (text.isNotBlank()) " · $text" else ""
-    "video" -> if (file?.square == true) "🟪 Видеосообщение" else "🎬 Видео" + if (text.isNotBlank()) " · $text" else ""
-    "file" -> "📎 " + (file?.name ?: "Файл")
-    "voice" -> "🎤 Голосовое сообщение"
-    "square" -> "🟪 Видеосообщение"
+    "image" -> "Фото" + if (text.isNotBlank()) " · $text" else ""
+    "video" -> if (file?.square == true) "Видеосообщение" else "Видео" + if (text.isNotBlank()) " · $text" else ""
+    "file" -> ""+(file?.name ?: "Файл")
+    "voice" -> "Голосовое сообщение"
+    "square" -> "Видеосообщение"
+    "sticker" -> "Стикер"
     else -> text
 }
+
+private val STICKER_LINK = Regex("ryzik://stickers/([A-Za-z0-9-]+)")
 
 /** Сообщение только из 1–3 эмодзи показываем крупно, как в Telegram. */
 fun isEmojiOnly(text: String): Boolean {

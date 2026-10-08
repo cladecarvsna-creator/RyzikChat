@@ -26,15 +26,6 @@ async function api(method, url, body, token) {
 
 let aliceToken;
 
-/** Последний код входа из чата RyzikChat Info. */
-async function infoCode(token) {
-  const chats = (await api('GET', '/api/chats', null, token)).body;
-  const info = chats.find((c) => c.isService);
-  const msgs = (await api('GET', `/api/chats/${info.id}/messages`, null, token)).body;
-  const text = JSON.parse(msgs.at(-1).payload).plain.text;
-  return text.match(/\d{6}/)[0];
-}
-
 const reg = (username) => api('POST', '/api/auth/register', {
   username, displayName: username.toUpperCase(), password: 'x'.repeat(64), publicKey: 'pk-' + username, encryptedPrivateKey: 'enc-' + username,
 });
@@ -48,18 +39,29 @@ test('регистрация, чаты, сообщения, бейджи, websoc
   assert.equal((await reg('Alice')).status, 409);
 
   aliceToken = a.body.token;
-  // У bob уже есть сессия (после регистрации): вход с нового устройства — только с кодом из RyzikChat Info.
+  // Без двухэтапной проверки вход сразу выдаёт токен, а в RyzikChat Info приходит уведомление о входе.
+  const plain = await api('POST', '/api/auth/login', { username: 'bob', password: 'x'.repeat(64), device: 'Pixel' });
+  assert.ok(plain.body.token);
+  assert.equal(plain.body.encryptedPrivateKey, 'enc-bob');
+
+  // Включаем двухэтапную проверку: нужен пароль от аккаунта.
+  assert.equal((await api('PUT', '/api/me/2fa', { accountPassword: 'bad', password: 'tiger' }, b.body.token)).status, 403);
+  const on = await api('PUT', '/api/me/2fa', { accountPassword: 'x'.repeat(64), password: 'tiger', hint: 'кот' }, b.body.token);
+  assert.equal(on.body.has2fa, true);
+  assert.equal(on.body.twofaHint, 'кот');
   const step1 = await api('POST', '/api/auth/login', { username: 'bob', password: 'x'.repeat(64), device: 'Pixel' });
-  assert.equal(step1.body.needCode, true);
-  assert.deepEqual(step1.body.sentTo, ['chat']);
+  assert.equal(step1.body.need2fa, true);
+  assert.equal(step1.body.hint, 'кот');
   assert.equal(step1.body.token, undefined);
-  assert.equal((await api('POST', '/api/auth/login/confirm', { challengeId: step1.body.challengeId, code: '000000' })).body.error, 'bad_code');
-  const code = await infoCode(b.body.token);
-  const login = await api('POST', '/api/auth/login/confirm', { challengeId: step1.body.challengeId, code });
+  assert.equal((await api('POST', '/api/auth/login/2fa', { challengeId: step1.body.challengeId, password: 'lion' })).body.error, 'bad_2fa');
+  const login = await api('POST', '/api/auth/login/2fa', { challengeId: step1.body.challengeId, password: 'tiger' });
   assert.equal(login.status, 200);
   assert.ok(login.body.token);
-  assert.equal(login.body.encryptedPrivateKey, 'enc-bob');
-  assert.equal((await api('POST', '/api/auth/login/confirm', { challengeId: step1.body.challengeId, code })).status, 400, 'код одноразовый');
+  assert.equal((await api('POST', '/api/auth/login/2fa', { challengeId: step1.body.challengeId, password: 'tiger' })).status, 400, 'вход одноразовый');
+  // Смена требует текущий пароль, выключение — тоже.
+  assert.equal((await api('PUT', '/api/me/2fa', { accountPassword: 'x'.repeat(64), currentPassword: 'no', password: 'puma' }, b.body.token)).status, 403);
+  assert.equal((await api('DELETE', '/api/me/2fa', { password: 'no' }, b.body.token)).status, 403);
+  assert.equal((await api('DELETE', '/api/me/2fa', { password: 'tiger' }, b.body.token)).body.has2fa, false);
   assert.equal((await api('POST', '/api/auth/login', { username: 'bob', password: 'nope' })).status, 401);
 
   const chatsA = await api('GET', '/api/chats', null, a.body.token);
@@ -298,4 +300,65 @@ test('аватарки открываются без токена, осталь�
   assert.equal(await ok.text(), 'fake-png');
   assert.equal((await fetch(`${base}/api/avatars/${secret}`)).status, 404, 'не аватарку так не скачать');
   assert.equal((await fetch(`${base}/api/files/${secret}`)).status, 401);
+});
+
+async function uploadImage(token, body = 'img') {
+  const form = new FormData();
+  form.append('mime', 'image/png');
+  form.append('file', new Blob([Buffer.from(body)]), 'blob');
+  const res = await fetch(base + '/api/files', { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: form });
+  return (await res.json()).id;
+}
+
+test('обои чата видят все участники', async () => {
+  const x = (await reg('wallx')).body;
+  const y = (await reg('wally')).body;
+  const chat = (await api('POST', '/api/chats/direct', { userId: y.user.id }, x.token)).body;
+  const pic = await uploadImage(x.token, 'wall');
+  const set = await api('PUT', `/api/chats/${chat.id}/wallpaper`, { fileId: pic }, x.token);
+  assert.equal(set.body.wallpaperFileId, pic);
+  const seen = (await api('GET', '/api/chats', null, y.token)).body.find((c) => c.id === chat.id);
+  assert.equal(seen.wallpaperFileId, pic, 'собеседник видит те же обои');
+  assert.equal(await (await fetch(`${base}/api/avatars/${pic}`)).text(), 'wall');
+  // Чужую картинку поставить нельзя.
+  assert.equal((await api('PUT', `/api/chats/${chat.id}/wallpaper`, { fileId: pic }, y.token)).status, 400);
+  assert.equal((await api('PUT', `/api/chats/${chat.id}/wallpaper`, { fileId: null }, y.token)).body.wallpaperFileId, null);
+});
+
+test('свои стикеры: набор, добавление, пересылка другу', async () => {
+  const x = (await reg('stickx')).body;
+  const y = (await reg('sticky')).body;
+  const pack = (await api('POST', '/api/stickers/packs', { title: 'Котики' }, x.token)).body;
+  assert.equal(pack.isMine, true);
+  assert.equal(pack.isAdded, true);
+  const pic = await uploadImage(x.token, 'cat');
+  const withSticker = await api('POST', `/api/stickers/packs/${pack.id}/stickers`, { fileId: pic, emoji: '😺' }, x.token);
+  assert.equal(withSticker.status, 201);
+  assert.equal(withSticker.body.stickers.length, 1);
+  assert.equal(await (await fetch(`${base}/api/avatars/${pic}`)).text(), 'cat', 'стикер открывается без токена');
+  // Друг открывает набор по ссылке и добавляет себе, но менять его не может.
+  const shared = (await api('GET', `/api/stickers/packs/${pack.id}`, null, y.token)).body;
+  assert.equal(shared.isAdded, false);
+  assert.equal((await api('PUT', `/api/stickers/packs/${pack.id}/added`, null, y.token)).body.isAdded, true);
+  assert.deepEqual((await api('GET', '/api/stickers', null, y.token)).body.map((p) => p.title), ['Котики']);
+  assert.equal((await api('POST', `/api/stickers/packs/${pack.id}/stickers`, { fileId: pic }, y.token)).status, 403);
+  assert.equal((await api('DELETE', `/api/stickers/packs/${pack.id}/added`, null, y.token)).body.isAdded, false);
+  const sid = withSticker.body.stickers[0].id;
+  assert.equal((await api('DELETE', `/api/stickers/packs/${pack.id}/stickers/${sid}`, null, x.token)).body.stickers.length, 0);
+});
+
+test('обновления приложения раздаёт сам сервер', async () => {
+  assert.equal((await fetch(`${base}/api/app/update`)).status, 404);
+  const admin = (await api('POST', '/api/auth/login', { username: 'alice', password: 'x'.repeat(64) })).body.token;
+  const form = new FormData();
+  form.append('versionCode', '42');
+  form.append('versionName', '9.9.9');
+  form.append('notes', 'Новое');
+  form.append('apk', new Blob([Buffer.from('apk-bytes')]), 'RyzikChat.apk');
+  const up = await fetch(base + '/api/admin/app', { method: 'POST', headers: { authorization: `Bearer ${admin}` }, body: form });
+  assert.equal(up.status, 200);
+  const info = await (await fetch(`${base}/api/app/update`)).json();
+  assert.equal(info.versionCode, 42);
+  assert.equal(info.apk, '/api/app/apk');
+  assert.equal(await (await fetch(base + info.apk)).text(), 'apk-bytes');
 });

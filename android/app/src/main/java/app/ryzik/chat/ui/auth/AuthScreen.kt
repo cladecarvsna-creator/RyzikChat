@@ -1,5 +1,6 @@
 package app.ryzik.chat.ui.auth
 
+import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -26,15 +27,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AlternateEmail
-import androidx.compose.material.icons.filled.Badge
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.AlternateEmail
+import androidx.compose.material.icons.rounded.Badge
+import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
@@ -131,7 +132,7 @@ fun AuthScreen(onBack: () -> Unit, onOpenTerms: () -> Unit) {
             .padding(horizontal = 24.dp),
     ) {
         IconButton(onClick = onBack, modifier = Modifier.padding(top = 8.dp)) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад")
+            Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад")
         }
         Spacer(Modifier.height(8.dp))
         AnimatedContent(register, label = "title", transitionSpec = {
@@ -160,7 +161,7 @@ fun AuthScreen(onBack: () -> Unit, onOpenTerms: () -> Unit) {
             value = username,
             onValueChange = { username = it.trim().removePrefix("@") },
             label = { Text("Имя пользователя") },
-            leadingIcon = { Icon(Icons.Default.AlternateEmail, null) },
+            leadingIcon = { Icon(Icons.Rounded.AlternateEmail, null) },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Next),
             modifier = Modifier.fillMaxWidth(),
@@ -171,7 +172,7 @@ fun AuthScreen(onBack: () -> Unit, onOpenTerms: () -> Unit) {
                 value = displayName,
                 onValueChange = { displayName = it.take(64) },
                 label = { Text("Как вас зовут") },
-                leadingIcon = { Icon(Icons.Default.Badge, null) },
+                leadingIcon = { Icon(Icons.Rounded.Badge, null) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                 shape = RoundedCornerShape(16.dp),
@@ -182,10 +183,10 @@ fun AuthScreen(onBack: () -> Unit, onOpenTerms: () -> Unit) {
             value = password,
             onValueChange = { password = it },
             label = { Text("Пароль") },
-            leadingIcon = { Icon(Icons.Default.Lock, null) },
+            leadingIcon = { Icon(Icons.Rounded.Lock, null) },
             trailingIcon = {
                 IconButton(onClick = { showPassword = !showPassword }) {
-                    Icon(if (showPassword) Icons.Default.VisibilityOff else Icons.Default.Visibility, "Показать пароль")
+                    Icon(if (showPassword) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, "Показать пароль")
                 }
             },
             singleLine = true,
@@ -199,7 +200,7 @@ fun AuthScreen(onBack: () -> Unit, onOpenTerms: () -> Unit) {
                 value = password2,
                 onValueChange = { password2 = it },
                 label = { Text("Повторите пароль") },
-                leadingIcon = { Icon(Icons.Default.Lock, null) },
+                leadingIcon = { Icon(Icons.Rounded.Lock, null) },
                 singleLine = true,
                 visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -218,10 +219,10 @@ fun AuthScreen(onBack: () -> Unit, onOpenTerms: () -> Unit) {
 
         Spacer(Modifier.height(8.dp))
         TextButton(onClick = { showServer = !showServer }) {
-            Icon(Icons.Default.Dns, null, Modifier.size(18.dp))
+            Icon(Icons.Rounded.Dns, null, Modifier.size(18.dp))
             Spacer(Modifier.size(8.dp))
             Text("Сервер")
-            Icon(if (showServer) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null)
+            Icon(if (showServer) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null)
         }
         AnimatedVisibility(showServer, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
             ElevatedCard(Modifier.fillMaxWidth()) {
@@ -290,21 +291,22 @@ fun AuthScreen(onBack: () -> Unit, onOpenTerms: () -> Unit) {
     }
 }
 
-/** Второй шаг входа: код из чата RyzikChat Info на другом устройстве или из письма. */
+/** Второй шаг входа: пароль двухэтапной проверки, если пользователь её включил. */
 @Composable
 private fun LoginCodeStep(step: app.ryzik.chat.data.LoginResponse, onBack: () -> Unit) {
     val repo = RyzikApp.instance.repo
     val scope = rememberCoroutineScope()
-    var code by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var visible by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
     fun confirm() {
-        if (code.length < 6 || loading) return
+        if (password.isEmpty() || loading) return
         loading = true
         scope.launch {
             try {
-                repo.confirmLogin(code)
+                repo.confirmLogin2fa(password)
             } catch (e: Exception) {
                 error = e.userMessage()
             } finally {
@@ -312,10 +314,6 @@ private fun LoginCodeStep(step: app.ryzik.chat.data.LoginResponse, onBack: () ->
             }
         }
     }
-
-    val where = buildList {
-        if ("chat" in step.sentTo) add("в чат «RyzikChat Info» на устройстве, где вы уже вошли")
-    }.joinToString(" и ")
 
     Column(
         Modifier
@@ -327,25 +325,34 @@ private fun LoginCodeStep(step: app.ryzik.chat.data.LoginResponse, onBack: () ->
             .padding(horizontal = 24.dp),
     ) {
         IconButton(onClick = onBack, modifier = Modifier.padding(top = 8.dp)) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад")
+            Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад")
         }
         Spacer(Modifier.height(8.dp))
-        Text("Подтвердите вход", style = MaterialTheme.typography.headlineLarge)
+        app.ryzik.chat.ui.components.EmptyIcon(Icons.Rounded.Shield)
+        Spacer(Modifier.height(16.dp))
+        Text("Двухэтапная проверка", style = MaterialTheme.typography.headlineLarge)
         Spacer(Modifier.height(8.dp))
         Text(
-            "Мы отправили код $where. Введите его здесь.",
+            "В этом аккаунте включён дополнительный пароль. Введите его, чтобы войти.",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(24.dp))
         OutlinedTextField(
-            value = code,
-            onValueChange = { v -> code = v.filter { it.isDigit() }.take(6); error = null; if (code.length == 6) confirm() },
-            label = { Text("Код из 6 цифр") },
-            leadingIcon = { Icon(Icons.Default.Lock, null) },
+            value = password,
+            onValueChange = { password = it; error = null },
+            label = { Text("Дополнительный пароль") },
+            supportingText = if (step.hint.isNotBlank()) { { Text("Подсказка: ${step.hint}") } } else null,
+            leadingIcon = { Icon(Icons.Rounded.Lock, null) },
+            trailingIcon = {
+                IconButton(onClick = { visible = !visible }) {
+                    Icon(if (visible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, if (visible) "Скрыть" else "Показать")
+                }
+            },
+            visualTransformation = if (visible) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
             singleLine = true,
-            textStyle = MaterialTheme.typography.headlineSmall.copy(letterSpacing = androidx.compose.ui.unit.TextUnit(6f, androidx.compose.ui.unit.TextUnitType.Sp)),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { confirm() }),
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
         )
@@ -355,7 +362,7 @@ private fun LoginCodeStep(step: app.ryzik.chat.data.LoginResponse, onBack: () ->
         Spacer(Modifier.height(24.dp))
         Button(
             onClick = { confirm() },
-            enabled = !loading && code.length == 6,
+            enabled = !loading && password.isNotEmpty(),
             modifier = Modifier.fillMaxWidth().height(56.dp),
             shape = RoundedCornerShape(28.dp),
         ) {
@@ -364,7 +371,7 @@ private fun LoginCodeStep(step: app.ryzik.chat.data.LoginResponse, onBack: () ->
         }
         Spacer(Modifier.height(12.dp))
         Text(
-            "Код действует 10 минут. Никому его не сообщайте: сотрудники RyzikChat никогда его не спрашивают.",
+            "Забыли дополнительный пароль? Войдите на устройстве, где аккаунт уже открыт, и выключите проверку в настройках конфиденциальности.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

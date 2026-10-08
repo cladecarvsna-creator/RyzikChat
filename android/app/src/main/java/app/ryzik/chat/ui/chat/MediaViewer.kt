@@ -16,8 +16,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -87,7 +87,7 @@ fun MediaViewer(chatId: String, messageId: String, onBack: () -> Unit) {
                     .padding(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад", tint = Color.White) }
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад", tint = Color.White) }
                 Column(Modifier.weight(1f)) {
                     Text(msg?.let { users[it.senderId]?.displayName } ?: "", color = Color.White, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     msg?.let { Text("${formatDay(it.createdAt)}, ${formatTime(it.createdAt)}", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelMedium) }
@@ -95,7 +95,7 @@ fun MediaViewer(chatId: String, messageId: String, onBack: () -> Unit) {
                 val ready = msg?.localFile ?: file?.let { (repo.mediaState(it.id).value as? MediaState.Ready)?.file }
                 if (ready != null && file != null) {
                     IconButton(onClick = { openFile(context, ready, file) }) {
-                        Icon(Icons.AutoMirrored.Filled.OpenInNew, "Открыть в другом приложении", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Rounded.OpenInNew, "Открыть в другом приложении", tint = Color.White)
                     }
                 }
             }
