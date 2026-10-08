@@ -169,6 +169,8 @@ import app.ryzik.chat.ui.theme.wallpaperColors
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
+import app.ryzik.chat.ui.flux.FluxIcon
+import app.ryzik.chat.ui.flux.formatFlux
 
 val QuickReactions = listOf("❤️", "👍", "😂", "🔥", "😮", "😢", "🎉", "👎", "🙏", "🤝")
 
@@ -276,6 +278,7 @@ fun ChatScreen(
         onDispose { if (repo.openChatId == chatId) repo.openChatId = null }
     }
     LaunchedEffect(chatId) {
+        launch { repo.sendErrors.collect { (c, msg) -> if (c == chatId) error = msg } }
         val c = repo.chat(chatId) ?: runCatching { repo.loadChat(chatId) }.getOrNull()
         // Сообщения группы зашифрованы для участников: до вступления их не показать.
         if (!(c?.type == "group" && c.myRole == null)) runCatching { repo.loadLatest(chatId) }.onFailure { error = it.userMessage() }
@@ -642,6 +645,24 @@ fun ChatScreen(
             // Панель ответа/редактирования
             Box {
                 Column(Modifier.navigationBarsPadding().imePadding().padding(horizontal = 8.dp, vertical = 6.dp)) {
+                    val meNow = (auth as? AuthState.LoggedIn)?.me
+                    if (chat?.type == "direct" && peer != null && peer.messagePrice > 0 && meNow?.isAdmin != true) {
+                        Surface(
+                            shape = RoundedCornerShape(18.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                        ) {
+                            Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                FluxIcon(18.dp)
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    "Сообщение стоит ${peer.messagePrice} FLUX, если вас нет в контактах у ${peer.displayName}. У вас ${formatFlux(meNow?.flux ?: 0)}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
                     AnimatedVisibility(replyTo != null || editing != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                         val target = editing ?: replyTo
                         Surface(

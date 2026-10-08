@@ -1,5 +1,6 @@
 package app.ryzik.chat.ui.premium
 
+import androidx.compose.material.icons.rounded.Bolt
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -52,6 +53,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -67,6 +72,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.ryzik.chat.RyzikApp
 import app.ryzik.chat.data.AuthState
+import app.ryzik.chat.data.userMessage
 import app.ryzik.chat.ui.components.PremiumGradient
 import kotlinx.coroutines.delay
 import kotlin.math.cos
@@ -76,11 +82,20 @@ const val PREMIUM_CONTACT = "ryzik3489"
 
 /** Экран Премиума. Получить его можно, написав владельцу в Telegram. */
 @Composable
-fun PremiumScreen(onBack: () -> Unit) {
+fun PremiumScreen(onBack: () -> Unit, onOpenFlux: () -> Unit = {}) {
     val repo = RyzikApp.instance.repo
     val auth by repo.auth.collectAsState()
     val me = (auth as? AuthState.LoggedIn)?.me
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var price by remember { mutableStateOf(1000L) }
+    var buying by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var bought by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        runCatching { repo.refreshMe() }
+        runCatching { repo.api.flux() }.onSuccess { price = it.premiumMonthPrice }
+    }
 
     val t = rememberInfiniteTransition(label = "premium")
     val spin by t.animateFloat(0f, 360f, infiniteRepeatable(tween(14000, easing = LinearEasing)), label = "spin")
@@ -120,7 +135,8 @@ fun PremiumScreen(onBack: () -> Unit) {
             Text("RyzikChat Премиум", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             Text(
-                if (me?.isPremium == true) "У вас уже есть Премиум. Спасибо за поддержку!"
+                if (me?.isPremium == true && me.premiumUntil != null) "Премиум активен до ${app.ryzik.chat.ui.flux.dateText(me.premiumUntil)}"
+                else if (me?.isPremium == true) "У вас уже есть Премиум. Спасибо за поддержку!"
                 else "Больше возможностей и звезда рядом с именем",
                 color = Color.White.copy(alpha = 0.8f),
                 textAlign = TextAlign.Center,
@@ -140,6 +156,65 @@ fun PremiumScreen(onBack: () -> Unit) {
             perks.forEachIndexed { i, p -> PerkRow(p, i) }
 
             Spacer(Modifier.height(24.dp))
+            if (me != null && (!me.isPremium || me.premiumUntil != null)) {
+                val balance = me.flux
+                Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                ) {
+                    Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(if (me.isPremium) "Продлить за FLUX" else "Купить за FLUX", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(6.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Месяц Премиума: ", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            app.ryzik.chat.ui.flux.FluxAmount(price)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("У вас: ", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            app.ryzik.chat.ui.flux.FluxAmount(balance, bold = false)
+                        }
+                        if (bought) {
+                            Spacer(Modifier.height(8.dp))
+                            Text("Готово! Премиум активен до ${me.premiumUntil?.let { app.ryzik.chat.ui.flux.dateText(it) } ?: ""}", color = MaterialTheme.colorScheme.primary, textAlign = TextAlign.Center)
+                        }
+                        error?.let {
+                            Spacer(Modifier.height(8.dp))
+                            Text(it, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+                        }
+                        Spacer(Modifier.height(16.dp))
+                        if (balance >= price) {
+                            Button(
+                                onClick = {
+                                    buying = true; error = null
+                                    scope.launch {
+                                        runCatching { repo.buyPremium(1) }
+                                            .onSuccess { bought = true }
+                                            .onFailure { error = it.userMessage() }
+                                        buying = false
+                                    }
+                                },
+                                enabled = !buying,
+                                shape = RoundedCornerShape(18.dp),
+                                modifier = Modifier.fillMaxWidth().height(52.dp),
+                            ) {
+                                Icon(Icons.Rounded.Bolt, null)
+                                Spacer(Modifier.width(8.dp))
+                                Text(if (buying) "Покупаем..." else "Купить месяц за ${app.ryzik.chat.ui.flux.formatFlux(price)} FLUX")
+                            }
+                        } else {
+                            Text("Не хватает ${app.ryzik.chat.ui.flux.formatFlux(price - balance)} FLUX", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.height(8.dp))
+                            Button(onClick = onOpenFlux, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth().height(52.dp)) {
+                                Icon(Icons.Rounded.Bolt, null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Открыть FLUX")
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            }
             if (me?.isPremium != true) {
                 Surface(
                     shape = RoundedCornerShape(20.dp),
@@ -147,7 +222,7 @@ fun PremiumScreen(onBack: () -> Unit) {
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 ) {
                     Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Как получить Премиум", style = MaterialTheme.typography.titleMedium)
+                        Text("Другой способ", style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(6.dp))
                         Text(
                             "Чтобы получить Премиум, напишите владельцу @$PREMIUM_CONTACT в Telegram. Укажите свой ник в RyzikChat: @${me?.username.orEmpty()}",

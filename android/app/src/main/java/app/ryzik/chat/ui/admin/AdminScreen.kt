@@ -60,7 +60,7 @@ import app.ryzik.chat.ui.components.parseColor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private val AdminTabs = listOf("Бейджи", "Пользователи", "Группы и каналы", "Журнал")
+private val AdminTabs = listOf("Бейджи", "Пользователи", "NFT", "Группы и каналы", "Журнал")
 
 private val BadgeColors = listOf("#FF8A3D", "#6750A4", "#00A3A3", "#2E6BE6", "#43A047", "#E91E63", "#FFB300", "#8D6E63")
 private val BadgeEmoji = listOf("⭐", "💎", "🔥", "🏆", "🛠️", "🎨", "🧪", "❤️", "🚀", "👑", "🦊", "🎮")
@@ -120,8 +120,9 @@ fun AdminScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit) {
     ) { padding ->
         when (tab) {
             1 -> { UsersModeration(Modifier.padding(padding), onOpenProfile); return@Scaffold }
-            2 -> { ChatsModeration(Modifier.padding(padding)); return@Scaffold }
-            3 -> { ModerationLog(Modifier.padding(padding)); return@Scaffold }
+            2 -> { NftCreator(Modifier.padding(padding)); return@Scaffold }
+            3 -> { ChatsModeration(Modifier.padding(padding)); return@Scaffold }
+            4 -> { ModerationLog(Modifier.padding(padding)); return@Scaffold }
         }
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(bottom = 96.dp)) {
             item {

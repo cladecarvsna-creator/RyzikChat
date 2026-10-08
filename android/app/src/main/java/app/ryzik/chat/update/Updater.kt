@@ -18,13 +18,13 @@ import okhttp3.Request
 import java.io.File
 import java.util.concurrent.TimeUnit
 
-/** Описание свежей сборки, которую раздаёт сервер RyzikChat (GET /api/app/update). */
+/** Описание свежей сборки: update.json рядом с APK в релизе ryzikchat-latest на GitHub. */
 @Serializable
 data class UpdateInfo(
     val versionCode: Long,
     val versionName: String,
     val notes: String = "",
-    val apk: String = "/api/app/apk",
+    val apk: String = Updater.APK_URL,
     val size: Long = 0,
 )
 
@@ -39,15 +39,15 @@ sealed interface UpdateState {
 }
 
 /**
- * Обновление по воздуху: спрашиваем у своего сервера RyzikChat свежую сборку, скачиваем APK
- * с него же и открываем установщик Android. Все сборки подписаны одним ключом, поэтому новая
- * встаёт поверх старой.
+ * Обновление по воздуху без участия сервера RyzikChat: приложение само спрашивает GitHub
+ * о самой новой сборке, скачивает APK оттуда и открывает установщик Android. Все сборки
+ * подписаны одним ключом, поэтому новая встаёт поверх старой.
  */
 object Updater {
+    private const val BASE = "https://github.com/cladecarvsna-creator/RyzikChat/releases/download/ryzikchat-latest"
+    const val INFO_URL = "$BASE/update.json"
+    const val APK_URL = "$BASE/RyzikChat.apk"
     private const val PREFS = "updates"
-
-    private fun server() = app.ryzik.chat.RyzikApp.instance.repo.api.baseUrl.trimEnd('/')
-    private fun absolute(url: String) = if (url.startsWith("http")) url else server() + url
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
@@ -72,9 +72,8 @@ object Updater {
         if (!silent) _state.value = UpdateState.Checking
         val result = withContext(Dispatchers.IO) {
             runCatching {
-                http.newCall(Request.Builder().url(server() + "/api/app/update").header("Cache-Control", "no-cache").build()).execute().use { r ->
-                    if (r.code == 404) error("На сервере пока нет сборки приложения. Обновите сервер RyzikChat")
-                    if (!r.isSuccessful) error("Сервер ответил ${r.code}")
+                http.newCall(Request.Builder().url(INFO_URL + "?t=" + System.currentTimeMillis()).header("Cache-Control", "no-cache").build()).execute().use { r ->
+                    if (!r.isSuccessful) error("GitHub ответил ${r.code}")
                     AppJson.decodeFromString(UpdateInfo.serializer(), r.body!!.string())
                 }
             }
@@ -101,7 +100,7 @@ object Updater {
         val file = File(dir, "RyzikChat-${info.versionName}.apk")
         val result = withContext(Dispatchers.IO) {
             runCatching {
-                http.newCall(Request.Builder().url(absolute(info.apk)).build()).execute().use { r ->
+                http.newCall(Request.Builder().url(info.apk).build()).execute().use { r ->
                     if (!r.isSuccessful) error("Не удалось скачать обновление (${r.code})")
                     val body = r.body!!
                     val total = body.contentLength().takeIf { it > 0 } ?: info.size.takeIf { it > 0 } ?: -1L

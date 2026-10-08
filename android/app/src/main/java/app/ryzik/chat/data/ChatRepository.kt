@@ -14,6 +14,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -135,6 +136,10 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
     val incoming: SharedFlow<Pair<Chat, UiMessage>> = _incoming
 
     private val _notices = MutableSharedFlow<Notice>(extraBufferCapacity = 32)
+
+    /** Ошибки отправки с сервера (например, не хватает FLUX на платное сообщение): чат и текст. */
+    private val _sendErrors = MutableSharedFlow<Pair<String, String>>(extraBufferCapacity = 8)
+    val sendErrors = _sendErrors.asSharedFlow()
     val notices: SharedFlow<Notice> = _notices
 
     private val media = ConcurrentHashMap<String, MutableStateFlow<MediaState>>()
@@ -373,11 +378,22 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
 
     // ================= Пользователи =================
 
-    private fun rememberUsers(list: List<User>) {
+    /**
+     * full = профиль из /api/me. Публичный профиль не знает о 2FA, FLUX и ограничениях —
+     * для себя эти поля сохраняем из прежнего.
+     */
+    private fun rememberUsers(list: List<User>, full: Boolean = false) {
         if (list.isEmpty()) return
         _users.update { m -> m + list.associateBy { it.id } }
-        val me = (auth.value as? AuthState.LoggedIn)?.me
-        list.firstOrNull { it.id == me?.id }?.let { _auth.value = AuthState.LoggedIn(it) }
+        val me = (auth.value as? AuthState.LoggedIn)?.me ?: return
+        list.firstOrNull { it.id == me.id }?.let { u ->
+            _auth.value = AuthState.LoggedIn(
+                if (full) u else u.copy(
+                    has2fa = me.has2fa, twofaHint = me.twofaHint, flux = me.flux, premiumUntil = me.premiumUntil,
+                    restrictedUntil = me.restrictedUntil, restrictReason = me.restrictReason,
+                ),
+            )
+        }
     }
 
     suspend fun searchUsers(q: String): List<User> = api.searchUsers(q).also { rememberUsers(it) }
@@ -416,6 +432,20 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
     suspend fun disable2fa(password: String) {
         _auth.value = AuthState.LoggedIn(api.disable2fa(password))
     }
+
+    // ================= FLUX =================
+
+    /** Перечитать свой профиль: баланс FLUX и Премиум меняются на сервере. */
+    suspend fun refreshMe() { rememberUsers(listOf(api.me()), full = true) }
+
+    suspend fun buyPremium(months: Int = 1) { api.buyPremium(months); refreshMe() }
+
+    suspend fun buyGift(itemId: String, toUserId: String?, message: String) = api.buyGift(itemId, toUserId, message).also { refreshMe() }
+
+    suspend fun setMessagePrice(price: Int) { api.setMessagePrice(price); refreshMe() }
+
+    /** Загружает картинку открыто (для подарков-NFT), уменьшив до 512 px. */
+    suspend fun uploadGiftImage(uri: Uri): String = uploadImageScaled(uri, 512, "image/webp", square = true)
 
     // ================= Обои чата =================
 
@@ -727,8 +757,9 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
                 decryptCache["${sent.id}:0"] = content
                 merge(chatId, listOf(decrypt(sent)))
                 bumpChat(sent)
-            } catch (_: Exception) {
+            } catch (e: Exception) {
                 markFailed(chatId, clientId)
+                if (e is ApiException) _sendErrors.tryEmit(chatId to (e.message ?: "Не удалось отправить"))
             }
         }
     }
@@ -1118,7 +1149,7 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
             }
             "user.updated" -> ev.user?.let { u ->
                 // Про себя сервер шлёт урезанный профиль — перечитываем полный (2FA, ограничения).
-                if (u.id == myId) scope.launch { runCatching { rememberUsers(listOf(api.me())) } } else rememberUsers(listOf(u))
+                if (u.id == myId) scope.launch { runCatching { refreshMe() } } else rememberUsers(listOf(u))
             }
             "call.signal" -> {
                 val from = ev.from ?: return

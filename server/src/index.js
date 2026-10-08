@@ -34,8 +34,10 @@ if (isMain) {
   const port = Number(process.env.PORT ?? 8080);
   const dataDir = path.resolve(process.env.DATA_DIR ?? './data');
   const adminUsernames = (process.env.ADMIN_USERNAMES ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
-  // UPDATE_SOURCE=off — не забирать сборки автоматически (тогда APK загружает админ).
-  const src = process.env.UPDATE_SOURCE ?? DEFAULT_UPDATE_SOURCE;
+  // Приложение само проверяет обновления на GitHub. Раздавать сборки с этого сервера можно,
+  // указав UPDATE_SOURCE (например, UPDATE_SOURCE=github) — тогда сервер будет их забирать.
+  const env = process.env.UPDATE_SOURCE ?? 'off';
+  const src = env === 'github' ? DEFAULT_UPDATE_SOURCE : env;
   const updateSource = src && src !== 'off' ? src.replace(/\/$/, '') : null;
   startServer({ port, dataDir, adminUsernames, updateSource }).then(({ port: p }) => {
     console.log(`RyzikChat server: http://0.0.0.0:${p} (данные: ${dataDir})`);

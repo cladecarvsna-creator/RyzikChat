@@ -1,5 +1,6 @@
 package app.ryzik.chat.ui.profile
 
+import androidx.compose.material.icons.rounded.CardGiftcard
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Bookmark
@@ -60,6 +61,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -70,6 +72,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.ryzik.chat.RyzikApp
+import app.ryzik.chat.ui.flux.GiftShopSheet
+import app.ryzik.chat.ui.flux.ProfileGifts
 import app.ryzik.chat.data.AuthState
 import app.ryzik.chat.data.Badge
 import app.ryzik.chat.data.userMessage
@@ -108,6 +112,8 @@ fun ProfileScreen(
     var bio by remember { mutableStateOf("") }
     var uploading by remember { mutableStateOf(false) }
     val isContact = contacts.any { it.id == userId }
+    var giftSheet by remember { mutableStateOf(false) }
+    var giftsKey by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(userId) {
         runCatching { repo.loadUser(userId) }.onSuccess { blocked = it.isBlocked }.onFailure { error = it.userMessage() }
@@ -218,6 +224,27 @@ fun ProfileScreen(
                         }
                     }
                 }
+                if (!blocked) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(Modifier.padding(horizontal = 16.dp)) {
+                        ProfileAction(Icons.Rounded.CardGiftcard, "Подарить подарок", Modifier.weight(1f)) { giftSheet = true }
+                    }
+                }
+                if (user.messagePrice > 0 && !isContact) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Сообщения этому человеку стоят ${user.messagePrice} FLUX, пока вы не в его контактах",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 24.dp),
+                    )
+                }
+            }
+
+            if (!user.isService) {
+                Spacer(Modifier.height(8.dp))
+                ProfileGifts(user.id, isMe, giftsKey)
             }
 
             if (user.badges.isNotEmpty() || user.isAdmin) {
@@ -307,6 +334,7 @@ fun ProfileScreen(
                     }
                 }
             }
+            if (giftSheet) GiftShopSheet(user, onDismiss = { giftSheet = false }, onGifted = { giftSheet = false; giftsKey++ })
             AnimatedVisibility(error != null) {
                 Text(error.orEmpty(), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
             }

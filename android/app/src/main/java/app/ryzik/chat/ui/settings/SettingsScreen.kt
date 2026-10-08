@@ -1,5 +1,9 @@
 package app.ryzik.chat.ui.settings
 
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material3.FilterChip
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -143,6 +147,7 @@ fun SettingsScreen(
     onOpenPremium: () -> Unit,
     onOpenProfileLook: () -> Unit = {},
     onOpenProfile: () -> Unit = {},
+    onOpenFlux: () -> Unit = {},
 ) {
     val repo = RyzikApp.instance.repo
     val auth by repo.auth.collectAsState()
@@ -177,7 +182,7 @@ fun SettingsScreen(
         SettingsEntry("look", Icons.Rounded.AutoAwesome, SettingsColors.Pink, "Профиль", "Статус, цвет шапки, рамка", onOpenProfileLook),
     )
     val rows = buildList {
-        if (me.isAdmin) add(SettingsEntry("admin", Icons.Rounded.AdminPanelSettings, SettingsColors.Indigo, "Админ-панель", "Бейджи и права пользователей", onOpenAdmin))
+        if (me.isAdmin) add(SettingsEntry("admin", Icons.Rounded.AdminPanelSettings, SettingsColors.Indigo, "Админ-панель", "Модерация, FLUX и NFT", onOpenAdmin))
         add(section(SettingsSection.Data))
         add(section(SettingsSection.Updates))
         add(section(SettingsSection.Server))
@@ -185,7 +190,8 @@ fun SettingsScreen(
         add(section(SettingsSection.About))
     }
     val premiumEntry = SettingsEntry("premium", Icons.Rounded.Star, SettingsColors.Purple, "RyzikChat Премиум", if (me.isPremium) "Активен" else "Звезда у имени, файлы до 2 ГБ и не только", onOpenPremium)
-    val found = if (query.isBlank()) emptyList() else (tiles + premiumEntry + rows).filter {
+    val fluxEntry = SettingsEntry("flux", Icons.Rounded.Bolt, SettingsColors.Orange, "FLUX", "Баланс: ${app.ryzik.chat.ui.flux.formatFlux(me.flux)}. Подарки и Премиум", onOpenFlux)
+    val found = if (query.isBlank()) emptyList() else (tiles + premiumEntry + fluxEntry + rows).filter {
         it.title.contains(query.trim(), ignoreCase = true) || it.subtitle.contains(query.trim(), ignoreCase = true)
     }
 
@@ -326,6 +332,13 @@ fun SettingsScreen(
                         }
                         Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = Color.White)
                     }
+                }
+            }
+            item(key = "flux") {
+                SettingsCard(fluxEntry.icon, fluxEntry.color, "FLUX", "Подарки, NFT и Премиум за FLUX", onOpenFlux) {
+                    app.ryzik.chat.ui.flux.FluxAmount(me.flux)
+                    Spacer(Modifier.width(4.dp))
+                    Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             items(rows.size, key = { "r_" + rows[it].key }) { i ->
@@ -685,6 +698,9 @@ private fun PrivacySettings(s: AppSettings, update: ((AppSettings) -> AppSetting
     SwitchRow("Отчёты о прочтении", "Показывать галочки «прочитано»", s.showReadReceipts) { v -> update { it.copy(showReadReceipts = v) } }
     SwitchRow("Статус «печатает…»", "Показывать, когда собеседник набирает текст", s.showTyping) { v -> update { it.copy(showTyping = v) } }
 
+    Header("Платные сообщения")
+    MessagePriceSection()
+
     Header("Активные сеансы")
     sessions.forEach { ses ->
         ListItem(
@@ -738,6 +754,73 @@ private fun PrivacySettings(s: AppSettings, update: ((AppSettings) -> AppSetting
                 }) { Text("Сменить") }
             },
             dismissButton = { TextButton(onClick = { changing = false }) { Text("Отмена") } },
+        )
+    }
+}
+
+/** Цена сообщения в FLUX для тех, кого нет в ваших контактах. FLUX достаются вам. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun MessagePriceSection() {
+    val repo = RyzikApp.instance.repo
+    val scope = rememberCoroutineScope()
+    val auth by repo.auth.collectAsState()
+    val me = (auth as? AuthState.LoggedIn)?.me ?: return
+    var custom by remember { mutableStateOf(false) }
+    var text by remember { mutableStateOf("") }
+    var err by remember { mutableStateOf<String?>(null) }
+    fun set(price: Int) {
+        err = null
+        scope.launch { runCatching { repo.setMessagePrice(price) }.onFailure { err = it.userMessage() } }
+    }
+    Text(
+        if (me.messagePrice > 0) "Люди не из ваших контактов платят ${me.messagePrice} FLUX за каждое сообщение вам. FLUX приходят на ваш баланс."
+        else "Сейчас писать вам может любой бесплатно. Можно назначить цену в FLUX для тех, кого нет в ваших контактах.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+    )
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(horizontal = 16.dp),
+    ) {
+        listOf(0, 10, 50, 100, 500).forEach { p ->
+            FilterChip(
+                selected = me.messagePrice == p,
+                onClick = { set(p) },
+                label = { Text(if (p == 0) "Бесплатно" else "$p FLUX") },
+                shape = RoundedCornerShape(14.dp),
+            )
+        }
+        FilterChip(
+            selected = me.messagePrice !in listOf(0, 10, 50, 100, 500),
+            onClick = { text = me.messagePrice.takeIf { it > 0 }?.toString().orEmpty(); custom = true },
+            label = { Text(if (me.messagePrice !in listOf(0, 10, 50, 100, 500)) "${me.messagePrice} FLUX" else "Своя цена") },
+            shape = RoundedCornerShape(14.dp),
+        )
+    }
+    err?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 20.dp)) }
+    if (custom) {
+        AlertDialog(
+            onDismissRequest = { custom = false },
+            shape = RoundedCornerShape(28.dp),
+            title = { Text("Цена сообщения") },
+            text = {
+                OutlinedTextField(
+                    text, { v -> text = v.filter { it.isDigit() }.take(5) },
+                    label = { Text("FLUX за сообщение (до 10 000)") },
+                    singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val v = text.toIntOrNull() ?: 0
+                    custom = false
+                    set(v.coerceIn(0, 10000))
+                }) { Text("Сохранить") }
+            },
+            dismissButton = { TextButton(onClick = { custom = false }) { Text("Отмена") } },
         )
     }
 }
@@ -891,7 +974,7 @@ private fun UpdatesSettings() {
         }
     }
     Text(
-        "Новые сборки скачиваются с GitHub проекта RyzikChat. Android попросит разрешить установку из этого приложения — это нужно один раз.",
+        "Приложение само проверяет новую версию на GitHub проекта RyzikChat и скачивает её оттуда, сервер для этого не нужен. Android один раз попросит разрешить установку из этого приложения.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 24.dp),

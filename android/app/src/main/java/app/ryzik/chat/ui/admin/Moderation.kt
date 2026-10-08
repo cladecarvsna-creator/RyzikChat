@@ -1,5 +1,12 @@
 package app.ryzik.chat.ui.admin
 
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilledTonalButton
+import app.ryzik.chat.ui.flux.formatFlux
+import app.ryzik.chat.ui.flux.FluxIcon
+import app.ryzik.chat.ui.flux.FluxAmount
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -105,6 +112,7 @@ fun UsersModeration(modifier: Modifier, onOpenProfile: (String) -> Unit) {
     var users by remember { mutableStateOf<List<User>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
     var action by remember { mutableStateOf<Pair<User, String>?>(null) } // "ban" | "restrict"
+    var grant by remember { mutableStateOf<User?>(null) }
     var reload by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(query, reload) {
@@ -137,6 +145,8 @@ fun UsersModeration(modifier: Modifier, onOpenProfile: (String) -> Unit) {
                         Text("@${u.username}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     if (u.isAdmin) StatusChip("админ", MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(6.dp))
+                    FluxAmount(u.flux, iconSize = 16.dp)
                 }
                 if (u.bannedUntil != null) {
                     Spacer(Modifier.height(8.dp))
@@ -148,8 +158,14 @@ fun UsersModeration(modifier: Modifier, onOpenProfile: (String) -> Unit) {
                     Text("Ограничен ${untilText(u.restrictedUntil)}" + u.restrictReason.takeIf { it.isNotBlank() }?.let { ". $it" }.orEmpty(),
                         style = MaterialTheme.typography.bodySmall, color = Color(0xFFFF9F43))
                 }
+                Spacer(Modifier.height(10.dp))
+                FilledTonalButton(onClick = { grant = u }, shape = RoundedCornerShape(16.dp)) {
+                    Icon(Icons.Rounded.Bolt, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Выдать или забрать FLUX")
+                }
                 if (!u.isAdmin) {
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(6.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (u.bannedUntil != null) OutlinedButton(onClick = { run { api.unbanUser(u.id) } }) { Text("Разбанить") }
                         else OutlinedButton(onClick = { action = u to "ban" }) { Text("Забанить", color = MaterialTheme.colorScheme.error) }
@@ -161,6 +177,12 @@ fun UsersModeration(modifier: Modifier, onOpenProfile: (String) -> Unit) {
         }
     }
 
+    grant?.let { u ->
+        FluxGrantDialog(u, onDismiss = { grant = null }) { amount, note ->
+            grant = null
+            run { api.grantFlux(u.id, amount, note) }
+        }
+    }
     action?.let { (u, kind) ->
         PunishDialog(
             title = if (kind == "ban") "Забанить @${u.username}?" else "Ограничить @${u.username}?",
@@ -328,6 +350,8 @@ private fun actionText(e: ModerationLogEntry): String {
         "restrict" -> "ограничил $target ${untilText(e.until)}"
         "unrestrict" -> "снял ограничение с $target"
         "delete" -> "удалил $target"
+        "flux_grant" -> "начислил FLUX: $target"
+        "flux_take" -> "списал FLUX: $target"
         else -> "${e.action} $target"
     }
 }
@@ -350,13 +374,14 @@ fun ModerationLog(modifier: Modifier) {
                         "ban", "delete" -> Icons.Rounded.Block
                         "restrict" -> Icons.Rounded.SpeakerNotesOff
                         "unban", "unrestrict" -> Icons.Rounded.CheckCircle
+                        "flux_grant", "flux_take" -> Icons.Rounded.Bolt
                         else -> Icons.Rounded.History
                     }
-                    Icon(icon, null, tint = if (e.action.startsWith("un")) Color(0xFF2FBF71) else MaterialTheme.colorScheme.error)
+                    Icon(icon, null, tint = if (e.action.startsWith("flux")) Color(0xFFFF9F43) else if (e.action.startsWith("un")) Color(0xFF2FBF71) else MaterialTheme.colorScheme.error)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text("${e.admin?.displayName ?: "Админ"} ${actionText(e)}", style = MaterialTheme.typography.bodyMedium)
-                        if (e.reason.isNotBlank()) Text("Причина: ${e.reason}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (e.reason.isNotBlank()) Text(if (e.action.startsWith("flux")) e.reason else "Причина: ${e.reason}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(formatListTime(e.createdAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     if (e.targetType == "user") Icon(Icons.Rounded.Person, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -364,4 +389,50 @@ fun ModerationLog(modifier: Modifier) {
             }
         }
     }
+}
+
+/** Выдача FLUX. Отрицательное число списывает. */
+@Composable
+private fun FluxGrantDialog(u: User, onDismiss: () -> Unit, onConfirm: (Long, String) -> Unit) {
+    var amount by remember { mutableStateOf("") }
+    var take by remember { mutableStateOf(false) }
+    var note by remember { mutableStateOf("") }
+    val value = amount.toLongOrNull() ?: 0L
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(28.dp),
+        icon = { FluxIcon(32.dp) },
+        title = { Text("FLUX для @${u.username}") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Сейчас: ", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    FluxAmount(u.flux)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = !take, onClick = { take = false }, label = { Text("Выдать") }, shape = RoundedCornerShape(14.dp))
+                    FilterChip(selected = take, onClick = { take = true }, label = { Text("Забрать") }, shape = RoundedCornerShape(14.dp))
+                }
+                OutlinedTextField(
+                    amount, { v -> amount = v.filter { it.isDigit() }.take(9) },
+                    label = { Text("Сколько FLUX") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(100L, 500L, 1000L, 5000L).forEach { p ->
+                        AssistChip(onClick = { amount = p.toString() }, label = { Text(formatFlux(p)) }, shape = RoundedCornerShape(12.dp))
+                    }
+                }
+                OutlinedTextField(note, { note = it.take(200) }, label = { Text("Комментарий (необязательно)") }, shape = RoundedCornerShape(16.dp))
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = value > 0, onClick = { onConfirm(if (take) -value else value, note.trim()) }) {
+                Text(if (take) "Забрать" else "Выдать")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+    )
 }

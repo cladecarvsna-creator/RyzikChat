@@ -1,5 +1,6 @@
 package app.ryzik.chat
 
+import app.ryzik.chat.ui.flux.FluxScreen
 import app.ryzik.chat.ui.chat.StickerViewer
 import app.ryzik.chat.ui.chat.StickerPackDialog
 import android.Manifest
@@ -268,6 +269,7 @@ private fun MainNav(pendingChat: String?, onPendingHandled: () -> Unit) {
                         onOpenProfileLook = { nav.go("profilelook") },
                         onOpenSaved = { repo.savedChat()?.let { nav.go("chat/${it.id}") } },
                         onOpenProfile = { tab = HomeTab.Profile },
+                        onOpenFlux = { nav.go("flux") },
                     )
                 }
             }
@@ -318,7 +320,7 @@ private fun MainNav(pendingChat: String?, onPendingHandled: () -> Unit) {
                 onOpenChat = { id -> nav.navigate("chat/$id") { popUpTo("chats") } },
             )
         }
-        composable("premium") { PremiumScreen(onBack = { nav.popBackStack() }) }
+        composable("premium") { PremiumScreen(onBack = { nav.popBackStack() }, onOpenFlux = { nav.go("flux") }) }
         composable("profilelook") { ProfileLookScreen(onBack = { nav.popBackStack() }, onOpenPremium = { nav.go("premium") }) }
         composable("addmembers/{id}") { e ->
             NewChatScreen(onBack = { nav.popBackStack() }, onOpenChat = {}, addToChatId = e.arguments?.getString("id"))
@@ -339,8 +341,10 @@ private fun MainNav(pendingChat: String?, onPendingHandled: () -> Unit) {
                 onOpenPremium = { nav.go("premium") },
                 onOpenProfileLook = { nav.go("profilelook") },
                 onOpenSaved = { repo.savedChat()?.let { nav.go("chat/${it.id}") } },
+                onOpenFlux = { nav.go("flux") },
             )
         }
+        composable("flux") { FluxScreen(onBack = { nav.popBackStack() }, onOpenPremium = { nav.go("premium") }) }
         composable("settings/{section}") { e ->
             val section = SettingsSection.valueOf(e.arguments?.getString("section")!!)
             SettingsSectionScreen(section, onBack = { nav.popBackStack() }, onOpenTerms = { nav.go("terms") }, onOpenPremium = { nav.go("premium") })

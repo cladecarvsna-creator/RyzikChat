@@ -410,3 +410,45 @@ test('модерация: бан, ограничение, блокировка �
   const log = (await api('GET', '/api/admin/log', null, admin)).body;
   assert.ok(log.some((l) => l.action === 'delete' && l.targetName === 'Плохой канал'));
 });
+
+test('FLUX: выдача, подарки (NFT), Премиум за FLUX, платные сообщения', async () => {
+  const admin = (await api('POST', '/api/auth/login', { username: 'alice', password: 'x'.repeat(64) })).body.token;
+  const x = (await reg('fluxx')).body;
+  const y = (await reg('fluxy')).body;
+  assert.equal((await api('GET', '/api/me', null, x.token)).body.flux, 0);
+  assert.equal((await api('POST', `/api/admin/users/${x.user.id}/flux`, { amount: 1500, note: 'тест' }, x.token)).status, 403);
+  assert.equal((await api('POST', `/api/admin/users/${x.user.id}/flux`, { amount: 1500, note: 'тест' }, admin)).body.flux, 1500);
+
+  // NFT-создатель: картинка, цена, тираж 1.
+  const pic = await uploadImage(admin, 'nft');
+  const item = (await api('POST', '/api/admin/gift-items', { title: 'Рыжик', price: 300, supply: 1, fileId: pic }, admin)).body;
+  assert.equal(item.left, 1);
+  assert.equal(await (await fetch(`${base}/api/avatars/${pic}`)).text(), 'nft');
+  const bought = await api('POST', '/api/gifts/buy', { itemId: item.id, toUserId: y.user.id, message: 'держи' }, x.token);
+  assert.equal(bought.status, 201);
+  assert.equal(bought.body.serial, 1);
+  assert.equal((await api('POST', '/api/gifts/buy', { itemId: item.id }, x.token)).body.error, 'sold_out');
+  const yGifts = (await api('GET', `/api/users/${y.user.id}/gifts`, null, x.token)).body;
+  assert.equal(yGifts[0].from.username, 'fluxx');
+  // Y передаёт NFT обратно X.
+  assert.equal((await api('POST', `/api/gifts/${yGifts[0].id}/transfer`, { toUserId: x.user.id }, y.token)).body.ownerId, x.user.id);
+  assert.equal((await api('POST', `/api/gifts/${yGifts[0].id}/transfer`, { toUserId: x.user.id }, y.token)).status, 404);
+
+  // Премиум за 1000 FLUX: остаток 1200 → 200.
+  const prem = await api('POST', '/api/premium/buy', { months: 1 }, x.token);
+  assert.equal(prem.body.isPremium, true);
+  assert.equal(prem.body.flux, 200);
+  assert.ok(prem.body.premiumUntil > Date.now());
+  assert.equal((await api('POST', '/api/premium/buy', { months: 1 }, x.token)).body.error, 'need_flux');
+
+  // Платные сообщения: Y берёт 150 FLUX за сообщение от незнакомцев.
+  await api('PATCH', '/api/me', { messagePrice: 150 }, y.token);
+  const dm = (await api('POST', '/api/chats/direct', { userId: y.user.id }, x.token)).body;
+  assert.equal((await api('POST', `/api/chats/${dm.id}/messages`, { type: 'text', payload: 'a' }, x.token)).status, 201);
+  assert.equal((await api('GET', '/api/me', null, y.token)).body.flux, 150);
+  assert.equal((await api('POST', `/api/chats/${dm.id}/messages`, { type: 'text', payload: 'b' }, x.token)).body.error, 'need_flux');
+  await api('PUT', `/api/contacts/${x.user.id}`, null, y.token);
+  assert.equal((await api('POST', `/api/chats/${dm.id}/messages`, { type: 'text', payload: 'c' }, x.token)).status, 201, 'контактам бесплатно');
+  const hist = (await api('GET', '/api/flux', null, x.token)).body;
+  assert.deepEqual(hist.history.map((h) => h.kind), ['paid_message', 'premium', 'gift', 'admin']);
+});

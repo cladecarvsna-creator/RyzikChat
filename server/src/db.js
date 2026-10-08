@@ -171,6 +171,48 @@ function migrate(db) {
     until INTEGER,
     created_at INTEGER NOT NULL
   )`);
+  // FLUX — внутренняя валюта: баланс, Премиум за FLUX, цена сообщений от незнакомцев.
+  if (!cols('users').includes('flux')) {
+    db.exec('ALTER TABLE users ADD COLUMN flux INTEGER NOT NULL DEFAULT 0');
+    db.exec('ALTER TABLE users ADD COLUMN premium_until INTEGER');
+    db.exec('ALTER TABLE users ADD COLUMN message_price INTEGER NOT NULL DEFAULT 0');
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS flux_tx (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      amount INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS flux_tx_user ON flux_tx(user_id, created_at);
+    -- Подарки (NFT): админ создаёт их из картинки и ставит цену в FLUX.
+    CREATE TABLE IF NOT EXISTS gift_items (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      file_id TEXT NOT NULL,
+      price INTEGER NOT NULL,
+      supply INTEGER,
+      sold INTEGER NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    -- Купленные экземпляры: у каждого свой номер, их можно дарить дальше.
+    CREATE TABLE IF NOT EXISTS gifts (
+      id TEXT PRIMARY KEY,
+      item_id TEXT NOT NULL REFERENCES gift_items(id) ON DELETE CASCADE,
+      serial INTEGER NOT NULL,
+      owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      from_user_id TEXT,
+      message TEXT NOT NULL DEFAULT '',
+      hidden INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS gifts_owner ON gifts(owner_id);
+  `);
   if (!cols('chats').includes('wallpaper_file_id')) db.exec('ALTER TABLE chats ADD COLUMN wallpaper_file_id TEXT');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS chats_invite_code ON chats(invite_code)');
   if (!cols('users').includes('email')) {

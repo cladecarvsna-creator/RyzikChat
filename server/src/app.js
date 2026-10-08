@@ -66,10 +66,12 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
       bio: row.bio,
       avatarFileId: row.avatar_file_id ?? null,
       isAdmin: !!row.is_admin,
-      isPremium: !!row.is_premium,
+      isPremium: hasPremium(row),
       // Оформление профиля и эмодзи-статус — возможности Премиума.
-      emojiStatus: row.is_premium ? row.emoji_status ?? null : null,
-      profileStyle: row.is_premium && row.profile_style ? JSON.parse(row.profile_style) : null,
+      emojiStatus: hasPremium(row) ? row.emoji_status ?? null : null,
+      profileStyle: hasPremium(row) && row.profile_style ? JSON.parse(row.profile_style) : null,
+      // Сколько FLUX стоит написать этому человеку, если вы не у него в контактах.
+      messagePrice: row.message_price ?? 0,
       publicKey: row.public_key,
       online: hub.isOnline(row.id),
       lastSeen: row.last_seen,
@@ -77,6 +79,9 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
       isBanned: isBannedRow(row),
     };
   }
+
+  /** Премиум: выдан админом навсегда или куплен за FLUX до premium_until. */
+  function hasPremium(row) { return !!row?.is_premium || (row?.premium_until ?? 0) > now(); }
 
   // ---------- модерация: проверки ----------
   /** Бан и ограничение действуют до *_until; null — нет, FOREVER — навсегда. */
@@ -308,7 +313,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     return token;
   }
 
-  app.get('/api/health', (_req, res) => res.json({ ok: true, name: 'RyzikChat', version: '0.6.1', apiVersion: 1 }));
+  app.get('/api/health', (_req, res) => res.json({ ok: true, name: 'RyzikChat', version: '0.7.0', apiVersion: 1 }));
 
   // Открытое описание API — чтобы можно было написать клиент под любое устройство.
   app.get('/api/openapi.json', (_req, res) => res.sendFile(path.join(import.meta.dirname, '..', 'openapi.json')));
@@ -435,7 +440,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
   app.get('/api/avatars/:id', (req, res) => {
     const id = String(req.params.id);
     const used = db.prepare(`SELECT 1 FROM users WHERE avatar_file_id = ? UNION ALL SELECT 1 FROM chats WHERE avatar_file_id = ? OR wallpaper_file_id = ?
-      UNION ALL SELECT 1 FROM stickers WHERE file_id = ? LIMIT 1`).get(id, id, id, id) ||
+      UNION ALL SELECT 1 FROM stickers WHERE file_id = ? UNION ALL SELECT 1 FROM gift_items WHERE file_id = ? LIMIT 1`).get(id, id, id, id, id) ||
       db.prepare("SELECT 1 FROM users WHERE profile_style LIKE ? LIMIT 1").get(`%"${id.replace(/[%_"]/g, '')}"%`);
     const row = used && db.prepare('SELECT * FROM files WHERE id = ?').get(id);
     if (!row) throw new HttpError(404, 'file_not_found', 'Файл не найден');
@@ -475,6 +480,8 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
       ...publicUser(row), has2fa: !!row?.twofa_hash, twofaHint: row?.twofa_hint ?? '',
       restrictedUntil: isRestrictedRow(row) ? row.restricted_until : null,
       restrictReason: isRestrictedRow(row) ? row.restrict_reason ?? '' : '',
+      flux: row?.flux ?? 0,
+      premiumUntil: row?.is_premium ? null : (row?.premium_until ?? 0) > now() ? row.premium_until : null,
     };
   };
 
@@ -551,7 +558,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
 
   app.patch('/api/me', (req, res) => {
     const { displayName, bio, avatarFileId, emojiStatus, profileStyle } = req.body ?? {};
-    const premium = !!getUserRow.get(req.userId).is_premium;
+    const premium = hasPremium(getUserRow.get(req.userId));
     if ((emojiStatus || profileStyle) && !premium) {
       throw new HttpError(403, 'premium_required', 'Это доступно с Премиумом');
     }
@@ -570,6 +577,10 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     if (bio !== undefined) db.prepare('UPDATE users SET bio = ? WHERE id = ?').run(String(bio).slice(0, 300), req.userId);
     if (avatarFileId !== undefined) {
       db.prepare('UPDATE users SET avatar_file_id = ? WHERE id = ?').run(avatarFileId || null, req.userId);
+    }
+    if (req.body?.messagePrice !== undefined) {
+      const price = Math.max(0, Math.min(10_000, Math.floor(Number(req.body.messagePrice) || 0)));
+      db.prepare('UPDATE users SET message_price = ? WHERE id = ?').run(price, req.userId);
     }
     const me = getUser(req.userId);
     hub.broadcastUser(req.userId, { type: 'user.updated', user: me });
@@ -857,10 +868,22 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     }
     const { type = 'text', payload, replyTo, forwardedFrom, clientId } = req.body ?? {};
     if (!MESSAGE_TYPES.has(type)) throw new HttpError(400, 'bad_type', 'Неизвестный тип сообщения');
+    // Платные сообщения: если собеседник назначил цену, а вы не у него в контактах — платите FLUX ему.
+    let paid = null;
+    if (target.type === 'direct') {
+      const peerId = memberIds(target.id).find((id) => id !== req.userId);
+      const peer = peerId && getUserRow.get(peerId);
+      const me = getUserRow.get(req.userId);
+      if (peer?.message_price > 0 && !contactStmt.get(peer.id, req.userId) && !me.is_admin) paid = { to: peer, price: peer.message_price };
+    }
     if (typeof payload !== 'string' || payload.length > MAX_PAYLOAD) {
       throw new HttpError(400, 'bad_payload', 'Пустое или слишком большое сообщение');
     }
     const msg = tx(db, () => {
+      if (paid) {
+        moveFlux(req.userId, -paid.price, 'paid_message', `Сообщение для @${paid.to.username}`);
+        moveFlux(paid.to.id, paid.price, 'paid_message_in', `Платное сообщение от @${getUserRow.get(req.userId).username}`);
+      }
       const chat = getChatRow.get(req.params.id);
       const seq = chat.last_seq + 1;
       const id = newId();
@@ -872,6 +895,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
       return publicMessage(db.prepare('SELECT * FROM messages WHERE id = ?').get(id));
     });
     broadcastChat(msg.chatId, { type: 'message.new', message: msg });
+    if (paid) { pushMe(req.userId); pushMe(paid.to.id); }
     res.status(201).json(msg);
   });
 
@@ -941,7 +965,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
   app.post('/api/files', upload.single('file'), (req, res) => {
     if (!req.file) throw new HttpError(400, 'no_file', 'Файл не получен');
     try { requireNotRestricted(req.userId); } catch (e) { fs.rmSync(req.file.path, { force: true }); throw e; }
-    if (!getUserRow.get(req.userId).is_premium && req.file.size > FREE_FILE_MB * 1024 * 1024) {
+    if (!hasPremium(getUserRow.get(req.userId)) && req.file.size > FREE_FILE_MB * 1024 * 1024) {
       fs.rmSync(req.file.path, { force: true });
       throw new HttpError(413, 'too_large', `Без Премиума можно отправлять файлы до ${FREE_FILE_MB} МБ`);
     }
@@ -1122,6 +1146,164 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     res.json(u);
   });
 
+  // ---------- FLUX, подарки и Премиум ----------
+
+  /** Меняет баланс и пишет запись в историю. Вызывать внутри транзакции. Не уходит в минус. */
+  function moveFlux(userId, amount, kind, note = '') {
+    const row = getUserRow.get(userId);
+    if (!row) throw new HttpError(404, 'user_not_found', 'Пользователь не найден');
+    if (row.flux + amount < 0) throw new HttpError(402, 'need_flux', `Не хватает FLUX: нужно ${-amount}, у вас ${row.flux}`);
+    db.prepare('UPDATE users SET flux = flux + ? WHERE id = ?').run(amount, userId);
+    db.prepare('INSERT INTO flux_tx (id, user_id, amount, kind, note, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(newId(), userId, amount, kind, String(note).slice(0, 200), now());
+  }
+  const pushMe = (userId) => hub.sendToUsers([userId], { type: 'user.updated', user: getUser(userId) });
+
+  const PREMIUM_MONTH_FLUX = Number(process.env.PREMIUM_MONTH_FLUX ?? 1000);
+  const MONTH_MS = 30 * 86_400_000;
+
+  app.get('/api/flux', (req, res) => {
+    const history = db.prepare('SELECT id, amount, kind, note, created_at AS createdAt FROM flux_tx WHERE user_id = ? ORDER BY created_at DESC LIMIT 100').all(req.userId);
+    res.json({ balance: getUserRow.get(req.userId).flux, premiumMonthPrice: PREMIUM_MONTH_FLUX, history });
+  });
+
+  app.post('/api/premium/buy', (req, res) => {
+    const months = Math.max(1, Math.min(12, Math.floor(Number(req.body?.months ?? 1)) || 1));
+    tx(db, () => {
+      const row = getUserRow.get(req.userId);
+      if (row.is_premium) throw new HttpError(400, 'already_premium', 'У вас уже бессрочный Премиум');
+      moveFlux(req.userId, -PREMIUM_MONTH_FLUX * months, 'premium', `Премиум на ${months} мес.`);
+      const from = Math.max(now(), row.premium_until ?? 0);
+      db.prepare('UPDATE users SET premium_until = ? WHERE id = ?').run(from + months * MONTH_MS, req.userId);
+    });
+    hub.broadcastUser(req.userId, { type: 'user.updated', user: getUser(req.userId) });
+    res.json(meView(req.userId));
+  });
+
+  function giftItemView(it) {
+    return {
+      id: it.id, title: it.title, description: it.description, fileId: it.file_id, price: it.price,
+      supply: it.supply ?? null, sold: it.sold, left: it.supply == null ? null : Math.max(0, it.supply - it.sold), active: !!it.active,
+    };
+  }
+  const giftItemRow = db.prepare('SELECT * FROM gift_items WHERE id = ?');
+
+  function giftView(g) {
+    const it = giftItemRow.get(g.item_id);
+    return {
+      id: g.id, serial: g.serial, item: it ? giftItemView(it) : null, ownerId: g.owner_id,
+      from: g.from_user_id ? getUser(g.from_user_id) : null, message: g.message, hidden: !!g.hidden, createdAt: g.created_at,
+    };
+  }
+
+  app.get('/api/gifts/shop', (_req, res) => {
+    res.json(db.prepare('SELECT * FROM gift_items WHERE active = 1 ORDER BY price, created_at').all().map(giftItemView));
+  });
+
+  /** Покупка подарка себе или в подарок другому. */
+  app.post('/api/gifts/buy', (req, res) => {
+    requireNotRestricted(req.userId);
+    const item = giftItemRow.get(String(req.body?.itemId ?? ''));
+    if (!item || !item.active) throw new HttpError(404, 'gift_not_found', 'Подарок не найден');
+    const to = req.body?.toUserId ? String(req.body.toUserId) : req.userId;
+    const toRow = getUserRow.get(to);
+    if (!toRow || to === SYSTEM_ID) throw new HttpError(404, 'user_not_found', 'Пользователь не найден');
+    const message = String(req.body?.message ?? '').trim().slice(0, 200);
+    const id = newId();
+    tx(db, () => {
+      const fresh = giftItemRow.get(item.id);
+      if (fresh.supply != null && fresh.sold >= fresh.supply) throw new HttpError(409, 'sold_out', 'Этот подарок закончился');
+      moveFlux(req.userId, -fresh.price, 'gift', to === req.userId ? `Подарок «${fresh.title}»` : `Подарок «${fresh.title}» для @${toRow.username}`);
+      db.prepare('UPDATE gift_items SET sold = sold + 1 WHERE id = ?').run(fresh.id);
+      db.prepare('INSERT INTO gifts (id, item_id, serial, owner_id, from_user_id, message, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(id, fresh.id, fresh.sold + 1, to, to === req.userId ? null : req.userId, message, now());
+    });
+    if (to !== req.userId) {
+      const from = getUserRow.get(req.userId);
+      postInfo(to, `${from.display_name} (@${from.username}) подарил вам «${item.title}»` + (message ? `: ${message}` : '') + '. Подарок уже в вашем профиле.');
+    }
+    pushMe(req.userId);
+    res.status(201).json(giftView(db.prepare('SELECT * FROM gifts WHERE id = ?').get(id)));
+  });
+
+  app.get('/api/users/:id/gifts', (req, res) => {
+    const own = req.params.id === req.userId;
+    const rows = db.prepare(`SELECT * FROM gifts WHERE owner_id = ? ${own ? '' : 'AND hidden = 0'} ORDER BY created_at DESC`).all(req.params.id);
+    res.json(rows.map(giftView));
+  });
+
+  function ownGift(req) {
+    const g = db.prepare('SELECT * FROM gifts WHERE id = ?').get(String(req.params.id));
+    if (!g || g.owner_id !== req.userId) throw new HttpError(404, 'gift_not_found', 'Подарок не найден');
+    return g;
+  }
+
+  // Передать свой подарок (NFT) другому человеку.
+  app.post('/api/gifts/:id/transfer', (req, res) => {
+    const g = ownGift(req);
+    const to = getUserRow.get(String(req.body?.toUserId ?? ''));
+    if (!to || to.id === SYSTEM_ID || to.id === req.userId) throw new HttpError(400, 'bad_user', 'Выберите, кому подарить');
+    const message = String(req.body?.message ?? '').trim().slice(0, 200);
+    db.prepare('UPDATE gifts SET owner_id = ?, from_user_id = ?, message = ?, hidden = 0, created_at = ? WHERE id = ?').run(to.id, req.userId, message, now(), g.id);
+    const from = getUserRow.get(req.userId);
+    const it = giftItemRow.get(g.item_id);
+    postInfo(to.id, `${from.display_name} (@${from.username}) подарил вам «${it?.title ?? 'подарок'}» #${g.serial}` + (message ? `: ${message}` : '') + '.');
+    res.json(giftView(db.prepare('SELECT * FROM gifts WHERE id = ?').get(g.id)));
+  });
+
+  app.patch('/api/gifts/:id', (req, res) => {
+    const g = ownGift(req);
+    if (req.body?.hidden !== undefined) db.prepare('UPDATE gifts SET hidden = ? WHERE id = ?').run(req.body.hidden ? 1 : 0, g.id);
+    res.json(giftView(db.prepare('SELECT * FROM gifts WHERE id = ?').get(g.id)));
+  });
+
+  // Админ: выдать или списать FLUX.
+  app.post('/api/admin/users/:id/flux', adminOnly, (req, res) => {
+    const amount = Math.trunc(Number(req.body?.amount));
+    if (!Number.isFinite(amount) || amount === 0 || Math.abs(amount) > 100_000_000) throw new HttpError(400, 'bad_amount', 'Укажите количество FLUX');
+    const row = getUserRow.get(req.params.id);
+    if (!row || row.id === SYSTEM_ID) throw new HttpError(404, 'user_not_found', 'Пользователь не найден');
+    const note = String(req.body?.note ?? '').trim().slice(0, 200);
+    tx(db, () => moveFlux(row.id, amount, 'admin', note || (amount > 0 ? 'Начисление от администрации' : 'Списание администрацией')));
+    logModeration(req.userId, amount > 0 ? 'flux_grant' : 'flux_take', 'user', row.id, row.username, `${amount} FLUX` + (note ? `. ${note}` : ''));
+    if (amount > 0) postInfo(row.id, `Вам начислено ${amount} FLUX` + (note ? `: ${note}` : '') + '.');
+    pushMe(row.id);
+    res.json(adminUserView(getUserRow.get(row.id)));
+  });
+
+  // Админ: «NFT-создатель» — подарок из картинки с ценой в FLUX и тиражом.
+  app.get('/api/admin/gift-items', adminOnly, (_req, res) => {
+    res.json(db.prepare('SELECT * FROM gift_items ORDER BY created_at DESC').all().map(giftItemView));
+  });
+
+  app.post('/api/admin/gift-items', adminOnly, (req, res) => {
+    const title = String(req.body?.title ?? '').trim().slice(0, 64);
+    const price = Math.floor(Number(req.body?.price));
+    const supply = req.body?.supply ? Math.floor(Number(req.body.supply)) : null;
+    const fileId = String(req.body?.fileId ?? '');
+    const f = db.prepare('SELECT mime FROM files WHERE id = ?').get(fileId);
+    if (!title) throw new HttpError(400, 'bad_title', 'Придумайте название');
+    if (!Number.isFinite(price) || price < 1) throw new HttpError(400, 'bad_price', 'Цена — от 1 FLUX');
+    if (supply !== null && !(supply > 0)) throw new HttpError(400, 'bad_supply', 'Тираж — положительное число или пусто');
+    if (!f || !f.mime.startsWith('image/')) throw new HttpError(400, 'bad_file', 'Нужна картинка');
+    const id = newId();
+    db.prepare(`INSERT INTO gift_items (id, title, description, file_id, price, supply, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, title, String(req.body?.description ?? '').trim().slice(0, 300), fileId, price, supply, req.userId, now());
+    res.status(201).json(giftItemView(giftItemRow.get(id)));
+  });
+
+  app.patch('/api/admin/gift-items/:id', adminOnly, (req, res) => {
+    const it = giftItemRow.get(String(req.params.id));
+    if (!it) throw new HttpError(404, 'gift_not_found', 'Подарок не найден');
+    if (req.body?.active !== undefined) db.prepare('UPDATE gift_items SET active = ? WHERE id = ?').run(req.body.active ? 1 : 0, it.id);
+    if (req.body?.price !== undefined) {
+      const p = Math.floor(Number(req.body.price));
+      if (!(p >= 1)) throw new HttpError(400, 'bad_price', 'Цена — от 1 FLUX');
+      db.prepare('UPDATE gift_items SET price = ? WHERE id = ?').run(p, it.id);
+    }
+    res.json(giftItemView(giftItemRow.get(it.id)));
+  });
+
   // ---------- модерация ----------
 
   function logModeration(adminId, action, targetType, targetId, targetName, reason = '', until = null) {
@@ -1142,6 +1324,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
       banReason: isBannedRow(row) ? row.ban_reason ?? '' : '',
       restrictedUntil: isRestrictedRow(row) ? row.restricted_until : null,
       restrictReason: isRestrictedRow(row) ? row.restrict_reason ?? '' : '',
+      flux: row.flux ?? 0,
       createdAt: row.created_at,
     };
   }

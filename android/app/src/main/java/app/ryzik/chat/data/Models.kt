@@ -46,6 +46,44 @@ data class User(
     val restrictedUntil: Long? = null,
     val restrictReason: String = "",
     val createdAt: Long = 0,
+    /** Сколько FLUX стоит написать этому человеку, если вы не у него в контактах. */
+    val messagePrice: Int = 0,
+    /** Только для себя: баланс FLUX и до какого времени куплен Премиум. */
+    val flux: Long = 0,
+    val premiumUntil: Long? = null,
+)
+
+@Serializable
+data class FluxTx(val id: String, val amount: Long, val kind: String, val note: String = "", val createdAt: Long = 0)
+
+@Serializable
+data class FluxInfo(val balance: Long = 0, val premiumMonthPrice: Long = 1000, val history: List<FluxTx> = emptyList())
+
+/** Подарок (NFT) на витрине. supply = null — без ограничения тиража. */
+@Serializable
+data class GiftItem(
+    val id: String,
+    val title: String,
+    val description: String = "",
+    val fileId: String,
+    val price: Long,
+    val supply: Int? = null,
+    val sold: Int = 0,
+    val left: Int? = null,
+    val active: Boolean = true,
+)
+
+/** Купленный экземпляр подарка с номером. */
+@Serializable
+data class OwnedGift(
+    val id: String,
+    val serial: Int,
+    val item: GiftItem? = null,
+    val ownerId: String = "",
+    val from: User? = null,
+    val message: String = "",
+    val hidden: Boolean = false,
+    val createdAt: Long = 0,
 )
 
 /** Группа или канал глазами модератора. */

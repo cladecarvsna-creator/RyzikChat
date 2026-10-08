@@ -337,6 +337,32 @@ class ApiClient(
     suspend fun setPremium(userId: String, isPremium: Boolean) =
         call("PUT", "/api/admin/users/$userId/premium", buildJsonObject { put("isPremium", isPremium) }, User.serializer())
 
+    // ---------- FLUX и подарки ----------
+
+    suspend fun flux() = call("GET", "/api/flux", null, FluxInfo.serializer())
+    suspend fun buyPremium(months: Int) = call("POST", "/api/premium/buy", buildJsonObject { put("months", months) }, User.serializer())
+    suspend fun giftShop() = call("GET", "/api/gifts/shop", null, ListSerializer(GiftItem.serializer()))
+    suspend fun buyGift(itemId: String, toUserId: String?, message: String) =
+        call("POST", "/api/gifts/buy", buildJsonObject { put("itemId", itemId); put("toUserId", toUserId); put("message", message) }, OwnedGift.serializer())
+    suspend fun userGifts(userId: String) = call("GET", "/api/users/$userId/gifts", null, ListSerializer(OwnedGift.serializer()))
+    suspend fun transferGift(giftId: String, toUserId: String, message: String) =
+        call("POST", "/api/gifts/$giftId/transfer", buildJsonObject { put("toUserId", toUserId); put("message", message) }, OwnedGift.serializer())
+    suspend fun setGiftHidden(giftId: String, hidden: Boolean) =
+        call("PATCH", "/api/gifts/$giftId", buildJsonObject { put("hidden", hidden) }, OwnedGift.serializer())
+    suspend fun setMessagePrice(price: Int) = call("PATCH", "/api/me", buildJsonObject { put("messagePrice", price) }, User.serializer())
+    suspend fun grantFlux(userId: String, amount: Long, note: String) =
+        call("POST", "/api/admin/users/$userId/flux", buildJsonObject { put("amount", amount); put("note", note) }, User.serializer())
+    suspend fun adminGiftItems() = call("GET", "/api/admin/gift-items", null, ListSerializer(GiftItem.serializer()))
+    suspend fun createGiftItem(title: String, description: String, fileId: String, price: Long, supply: Int?) =
+        call("POST", "/api/admin/gift-items", buildJsonObject {
+            put("title", title); put("description", description); put("fileId", fileId); put("price", price); put("supply", supply)
+        }, GiftItem.serializer())
+    suspend fun updateGiftItem(id: String, active: Boolean? = null, price: Long? = null) =
+        call("PATCH", "/api/admin/gift-items/$id", buildJsonObject {
+            if (active != null) put("active", active)
+            if (price != null) put("price", price)
+        }, GiftItem.serializer())
+
     // ---------- модерация ----------
 
     private fun q(s: String) = java.net.URLEncoder.encode(s, "UTF-8")
