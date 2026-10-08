@@ -11,7 +11,7 @@ export const SYSTEM_ID = 'ryzikchat-info';
 const newId = () => crypto.randomUUID();
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
-const MESSAGE_TYPES = new Set(['text', 'image', 'video', 'file', 'voice', 'square', 'sticker']);
+const MESSAGE_TYPES = new Set(['text', 'image', 'video', 'file', 'voice', 'square', 'sticker', 'call']);
 const FREE_FILE_MB = Number(process.env.FREE_FILE_MB ?? 200);
 const PREMIUM_FILE_MB = Number(process.env.MAX_FILE_MB ?? 2048);
 const MAX_PAYLOAD = 64 * 1024;
@@ -262,6 +262,37 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
   }
   const getMessageRowById = db.prepare('SELECT * FROM messages WHERE id = ?');
 
+  /** Личный чат двух людей; создаётся, если его ещё нет. */
+  function directChatId(a, b) {
+    const key = [a, b].sort().join(':');
+    const row = db.prepare('SELECT id FROM chats WHERE direct_key = ?').get(key);
+    if (row) return row.id;
+    const id = tx(db, () => createChat({ type: 'direct', createdBy: a, members: [a, b], directKey: key }));
+    hub.sendToUsers([a], { type: 'chat.new', chat: chatView(id, a) });
+    hub.sendToUsers([b], { type: 'chat.new', chat: chatView(id, b), by: a });
+    return id;
+  }
+
+  /** Подарок появляется в личном чате как сообщение от дарителя (открытым текстом, как в каналах). */
+  function postGiftMessage(fromId, toId, giftId) {
+    const g = db.prepare('SELECT * FROM gifts WHERE id = ?').get(giftId);
+    const item = g && giftItemRow.get(g.item_id);
+    if (!item) return;
+    const chatId = directChatId(fromId, toId);
+    const gift = { giftId: g.id, itemId: item.id, title: item.title, fileId: item.file_id, serial: g.serial, supply: item.supply ?? null, price: item.price, message: g.message ?? '' };
+    const msg = tx(db, () => {
+      const chat = getChatRow.get(chatId);
+      const seq = chat.last_seq + 1;
+      const id = newId();
+      db.prepare('UPDATE chats SET last_seq = ? WHERE id = ?').run(seq, chatId);
+      db.prepare(`INSERT INTO messages (id, chat_id, seq, sender_id, type, payload, created_at) VALUES (?, ?, ?, ?, 'gift', ?, ?)`)
+        .run(id, chatId, seq, fromId, JSON.stringify({ v: 0, plain: { text: g.message ?? '', gift } }), now());
+      db.prepare('UPDATE chat_members SET last_read_seq = ? WHERE chat_id = ? AND user_id = ?').run(seq, chatId, fromId);
+      return publicMessage(getMessageRowById.get(id));
+    });
+    broadcastChat(chatId, { type: 'message.new', message: msg });
+  }
+
   const blockedStmt = db.prepare('SELECT 1 FROM blocks WHERE user_id = ? AND blocked_id = ?');
   const contactStmt = db.prepare('SELECT 1 FROM contacts WHERE user_id = ? AND contact_id = ?');
   /** Заблокировал ли `owner` пользователя `other`. */
@@ -313,7 +344,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     return token;
   }
 
-  app.get('/api/health', (_req, res) => res.json({ ok: true, name: 'RyzikChat', version: '0.7.0', apiVersion: 1 }));
+  app.get('/api/health', (_req, res) => res.json({ ok: true, name: 'RyzikChat', version: '0.7.1', apiVersion: 1 }));
 
   // Открытое описание API — чтобы можно было написать клиент под любое устройство.
   app.get('/api/openapi.json', (_req, res) => res.sendFile(path.join(import.meta.dirname, '..', 'openapi.json')));
@@ -874,7 +905,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
       const peerId = memberIds(target.id).find((id) => id !== req.userId);
       const peer = peerId && getUserRow.get(peerId);
       const me = getUserRow.get(req.userId);
-      if (peer?.message_price > 0 && !contactStmt.get(peer.id, req.userId) && !me.is_admin) paid = { to: peer, price: peer.message_price };
+      if (type !== 'call' && peer?.message_price > 0 && !contactStmt.get(peer.id, req.userId) && !me.is_admin) paid = { to: peer, price: peer.message_price };
     }
     if (typeof payload !== 'string' || payload.length > MAX_PAYLOAD) {
       throw new HttpError(400, 'bad_payload', 'Пустое или слишком большое сообщение');
@@ -1208,6 +1239,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     const to = req.body?.toUserId ? String(req.body.toUserId) : req.userId;
     const toRow = getUserRow.get(to);
     if (!toRow || to === SYSTEM_ID) throw new HttpError(404, 'user_not_found', 'Пользователь не найден');
+    if (to !== req.userId && isBlocked(to, req.userId)) throw new HttpError(403, 'blocked', 'Пользователь ограничил отправку вам сообщений');
     const message = String(req.body?.message ?? '').trim().slice(0, 200);
     const id = newId();
     tx(db, () => {
@@ -1218,10 +1250,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
       db.prepare('INSERT INTO gifts (id, item_id, serial, owner_id, from_user_id, message, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .run(id, fresh.id, fresh.sold + 1, to, to === req.userId ? null : req.userId, message, now());
     });
-    if (to !== req.userId) {
-      const from = getUserRow.get(req.userId);
-      postInfo(to, `${from.display_name} (@${from.username}) подарил вам «${item.title}»` + (message ? `: ${message}` : '') + '. Подарок уже в вашем профиле.');
-    }
+    if (to !== req.userId) postGiftMessage(req.userId, to, id);
     pushMe(req.userId);
     res.status(201).json(giftView(db.prepare('SELECT * FROM gifts WHERE id = ?').get(id)));
   });
@@ -1243,11 +1272,10 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     const g = ownGift(req);
     const to = getUserRow.get(String(req.body?.toUserId ?? ''));
     if (!to || to.id === SYSTEM_ID || to.id === req.userId) throw new HttpError(400, 'bad_user', 'Выберите, кому подарить');
+    if (isBlocked(to.id, req.userId)) throw new HttpError(403, 'blocked', 'Пользователь ограничил отправку вам сообщений');
     const message = String(req.body?.message ?? '').trim().slice(0, 200);
     db.prepare('UPDATE gifts SET owner_id = ?, from_user_id = ?, message = ?, hidden = 0, created_at = ? WHERE id = ?').run(to.id, req.userId, message, now(), g.id);
-    const from = getUserRow.get(req.userId);
-    const it = giftItemRow.get(g.item_id);
-    postInfo(to.id, `${from.display_name} (@${from.username}) подарил вам «${it?.title ?? 'подарок'}» #${g.serial}` + (message ? `: ${message}` : '') + '.');
+    postGiftMessage(req.userId, to.id, g.id);
     res.json(giftView(db.prepare('SELECT * FROM gifts WHERE id = ?').get(g.id)));
   });
 

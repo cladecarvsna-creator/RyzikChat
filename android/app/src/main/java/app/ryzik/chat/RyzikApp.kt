@@ -91,7 +91,7 @@ class RyzikApp : Application() {
         scope.launch {
             repo.incoming.collect { (chat, msg) ->
                 val s = prefs.settings.first()
-                if (!s.notifications || chat.muted) return@collect
+                if (!s.notifications || chat.muted || msg.type == "call") return@collect
                 if ((chat.type == "group" || chat.type == "channel") && !s.groupNotifications) return@collect
                 val fg = foreground()
                 if (fg && repo.openChatId == chat.id) return@collect

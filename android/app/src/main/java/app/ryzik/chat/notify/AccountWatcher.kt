@@ -131,7 +131,7 @@ class AccountWatcher(private val context: Context, val account: SavedAccount) {
         when (ev.type) {
             "message.new" -> {
                 val m = ev.message ?: return
-                if (m.senderId == account.userId || m.deleted) return
+                if (m.senderId == account.userId || m.deleted || m.type == "call") return
                 if (!s.notifications) return
                 if (foreground() && !s.inAppNotifications) return
                 val c = chat(m.chatId) ?: return

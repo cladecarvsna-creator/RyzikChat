@@ -244,7 +244,26 @@ data class Content(
     val text: String = "",
     val file: FileRef? = null,
     val sticker: StickerRef? = null,
+    val gift: GiftRef? = null,
+    val call: CallRef? = null,
 )
+
+/** Подарок в сообщении. Сервер пишет его в личный чат, когда кто-то дарит подарок. */
+@Serializable
+data class GiftRef(
+    val giftId: String,
+    val itemId: String = "",
+    val title: String = "",
+    val fileId: String = "",
+    val serial: Int = 0,
+    val supply: Int? = null,
+    val price: Long = 0,
+    val message: String = "",
+)
+
+/** Запись о звонке в чате. status: ok, missed, declined, busy, cancelled, failed. */
+@Serializable
+data class CallRef(val video: Boolean = false, val status: String = "ok", val duration: Long = 0)
 
 /** Стикер в сообщении: картинка лежит на сервере открыто, как аватарка. */
 @Serializable
@@ -287,3 +306,21 @@ data class RealtimeEvent(
     val messageId: String? = null,
     val emoji: String? = null,
 )
+
+/** Подпись звонка для списка чатов и уведомлений. */
+fun callText(c: CallRef?): String {
+    val kind = if (c?.video == true) "Видеозвонок" else "Звонок"
+    return when (c?.status) {
+        "ok" -> "$kind · ${callDuration(c.duration)}"
+        "missed" -> "Пропущенный ${kind.lowercase()}"
+        "declined" -> "$kind отклонён"
+        "busy" -> "$kind: занято"
+        "cancelled" -> "Отменённый ${kind.lowercase()}"
+        else -> "$kind не состоялся"
+    }
+}
+
+fun callDuration(ms: Long): String {
+    val s = ms / 1000
+    return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s / 60 % 60, s % 60) else "%d:%02d".format(s / 60, s % 60)
+}

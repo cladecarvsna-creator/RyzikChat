@@ -1,5 +1,9 @@
 package app.ryzik.chat.ui.chat
 
+import androidx.compose.material.icons.rounded.CallMade
+import androidx.compose.material.icons.rounded.CallReceived
+import androidx.compose.material.icons.rounded.PhoneMissed
+import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
@@ -263,6 +267,8 @@ fun MessageBubble(
                     msg.type == "video" && c.file != null -> MediaVideo(msg, c.file, autoDownload)
                     msg.type == "file" && c.file != null -> FileAttachment(msg, c.file, onBubble, autoDownload)
                     msg.type == "voice" && c.file != null -> VoiceContent(msg, c.file, onBubble, if (mine) scheme.primary else scheme.tertiary)
+                    msg.type == "gift" && c.gift != null -> GiftContent(c.gift, mine, onBubble)
+                    msg.type == "call" && c.call != null -> CallContent(c.call, mine, onBubble)
                     else -> Unit
                 }
 
@@ -574,6 +580,8 @@ fun previewOf(type: String, text: String, file: FileRef?): String = when (type) 
     "voice" -> "Голосовое сообщение"
     "square" -> "Видеосообщение"
     "sticker" -> "Стикер"
+    "gift" -> "Подарок"
+    "call" -> "Звонок"
     else -> text
 }
 
@@ -595,4 +603,69 @@ fun isEmojiOnly(text: String): Boolean {
         i += Character.charCount(cp)
     }
     return count in 1..3
+}
+
+/** Подарок в чате: картинка, название и номер экземпляра. */
+@Composable
+private fun GiftContent(g: app.ryzik.chat.data.GiftRef, mine: Boolean, onBubble: Color) {
+    Column(
+        Modifier.padding(10.dp).widthIn(min = 180.dp, max = 220.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        app.ryzik.chat.ui.flux.GiftImage(g.fileId, Modifier.size(140.dp))
+        Spacer(Modifier.height(8.dp))
+        Text(
+            if (mine) "Вы подарили" else "Подарок для вас",
+            style = MaterialTheme.typography.labelMedium,
+            color = onBubble.copy(alpha = 0.7f),
+        )
+        Text(
+            g.title + if (g.serial > 0) " #${g.serial}" else "",
+            style = MaterialTheme.typography.titleMedium,
+            color = onBubble,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
+        if (g.price > 0) {
+            Spacer(Modifier.height(2.dp))
+            app.ryzik.chat.ui.flux.FluxAmount(g.price, color = onBubble, iconSize = 14.dp, bold = false)
+        }
+    }
+}
+
+/** Запись о звонке: значок, тип звонка и длительность или исход. */
+@Composable
+private fun CallContent(call: app.ryzik.chat.data.CallRef, mine: Boolean, onBubble: Color) {
+    val bad = call.status != "ok"
+    val color = if (bad) MaterialTheme.colorScheme.error else Color(0xFF2FBF71)
+    val title = when {
+        call.status == "ok" -> if (mine) "Исходящий" else "Входящий"
+        call.status == "missed" && !mine -> "Пропущенный"
+        call.status == "declined" -> if (mine) "Отклонён собеседником" else "Отклонённый"
+        call.status == "busy" -> "Занято"
+        call.status == "cancelled" -> if (mine) "Отменённый" else "Пропущенный"
+        call.status == "missed" -> "Без ответа"
+        else -> "Не удалось соединиться"
+    }
+    Row(Modifier.padding(start = 12.dp, end = 14.dp, top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(40.dp).clip(CircleShape).background(color.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
+            Icon(
+                when {
+                    call.video -> Icons.Rounded.Videocam
+                    bad -> Icons.Rounded.PhoneMissed
+                    mine -> Icons.Rounded.CallMade
+                    else -> Icons.Rounded.CallReceived
+                },
+                null, tint = color, modifier = Modifier.size(22.dp),
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Column {
+            Text((if (call.video) "Видеозвонок" else "Звонок"), style = MaterialTheme.typography.titleSmall, color = onBubble)
+            Text(
+                title + if (call.status == "ok") " · ${app.ryzik.chat.data.callDuration(call.duration)}" else "",
+                style = MaterialTheme.typography.bodySmall,
+                color = onBubble.copy(alpha = 0.7f),
+            )
+        }
+    }
 }

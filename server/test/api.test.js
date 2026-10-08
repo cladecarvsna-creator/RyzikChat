@@ -430,6 +430,13 @@ test('FLUX: выдача, подарки (NFT), Премиум за FLUX, пла
   assert.equal((await api('POST', '/api/gifts/buy', { itemId: item.id }, x.token)).body.error, 'sold_out');
   const yGifts = (await api('GET', `/api/users/${y.user.id}/gifts`, null, x.token)).body;
   assert.equal(yGifts[0].from.username, 'fluxx');
+  // Подарок виден в личном чате как сообщение от дарителя.
+  const giftChat = (await api('POST', '/api/chats/direct', { userId: x.user.id }, y.token)).body;
+  const giftMsgs = (await api('GET', `/api/chats/${giftChat.id}/messages`, null, y.token)).body;
+  const gm = (giftMsgs.messages ?? giftMsgs).find((m) => m.type === 'gift');
+  assert.ok(gm, 'сообщение о подарке в чате');
+  assert.equal(gm.senderId, x.user.id);
+  assert.equal(JSON.parse(gm.payload).plain.gift.title, 'Рыжик');
   // Y передаёт NFT обратно X.
   assert.equal((await api('POST', `/api/gifts/${yGifts[0].id}/transfer`, { toUserId: x.user.id }, y.token)).body.ownerId, x.user.id);
   assert.equal((await api('POST', `/api/gifts/${yGifts[0].id}/transfer`, { toUserId: x.user.id }, y.token)).status, 404);

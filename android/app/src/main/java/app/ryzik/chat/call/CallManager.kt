@@ -1,5 +1,6 @@
 package app.ryzik.chat.call
 
+import app.ryzik.chat.data.CallRef
 import android.content.Context
 import android.media.AudioManager
 import android.media.Ringtone
@@ -67,6 +68,8 @@ data class CallState(
     val endReason: String = "",
     /** Собеседник не в сети: звонок ждёт, пока он подключится. */
     val peerOffline: Boolean = false,
+    /** Звоним мы (а не нам): тогда мы и пишем запись о звонке в чат. */
+    val outgoing: Boolean = false,
 )
 
 /**
@@ -122,7 +125,7 @@ class CallManager(private val context: Context, private val repo: ChatRepository
     fun startCall(peerId: String, video: Boolean) {
         if (_state.value.phase != CallPhase.Idle && _state.value.phase != CallPhase.Ended) return
         val callId = UUID.randomUUID().toString()
-        _state.value = CallState(CallPhase.Outgoing, peerId, callId, video, speaker = video, cameraOn = video)
+        _state.value = CallState(CallPhase.Outgoing, peerId, callId, video, speaker = video, cameraOn = video, outgoing = true)
         scope.launch {
             try {
                 createPeer(video)
@@ -400,6 +403,18 @@ class CallManager(private val context: Context, private val repo: ChatRepository
             val name = repo.users.value[before.peerId]?.displayName ?: "Собеседник"
             val chatId = repo.chats.value.firstOrNull { c -> c.type == "direct" && c.members.any { it.user.id == before.peerId } }?.id
             Notifier.missedCall(context, before.peerId, name, before.video, chatId)
+        }
+        if (before.outgoing && before.peerId.isNotEmpty() && before.phase != CallPhase.Idle && before.phase != CallPhase.Ended) {
+            val status = when {
+                before.startedAt > 0 -> "ok"
+                reason == "Нет ответа" || reason == "Собеседник не в сети" -> "missed"
+                reason == "Собеседник отклонил звонок" -> "declined"
+                reason == "Собеседник занят" -> "busy"
+                reason == "Звонок завершён" -> "cancelled"
+                else -> "failed"
+            }
+            val duration = if (before.startedAt > 0) System.currentTimeMillis() - before.startedAt else 0L
+            repo.logCall(before.peerId, CallRef(video = before.video, status = status, duration = duration))
         }
         timeoutJob?.cancel()
         stopRinging()

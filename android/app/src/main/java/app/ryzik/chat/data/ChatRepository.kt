@@ -717,6 +717,8 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
         "voice" -> "Голосовое сообщение"
         "square" -> "Видеосообщение"
         "sticker" -> "Стикер"
+        "gift" -> "Подарок" + (c.gift?.title?.takeIf { it.isNotBlank() }?.let { " «$it»" } ?: "")
+        "call" -> callText(c.call)
         else -> c.text
     }
 
@@ -740,6 +742,16 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
             })
         }
         return E2E.encrypt(AppJson.encodeToString(Content.serializer(), content), recipientsOf(chatId))
+    }
+
+    /** Запись о звонке в личном чате. Пишет её звонивший, когда звонок закончился. */
+    fun logCall(peerId: String, call: CallRef) {
+        scope.launch {
+            runCatching {
+                val chat = chats.value.firstOrNull { c -> c.type == "direct" && c.members.any { it.user.id == peerId } } ?: openDirect(peerId)
+                sendContent(chat.id, "call", Content(call = call), null, null)
+            }
+        }
     }
 
     fun sendText(chatId: String, text: String, replyTo: String? = null) {
