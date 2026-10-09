@@ -194,6 +194,8 @@ data class Chat(
     val banReason: String = "",
     /** Открытый: ищется и вступить может любой. Частный: только по ссылке. */
     val isPublic: Boolean = false,
+    /** Публичный @юзернейм группы или канала. */
+    val username: String? = null,
     val inviteCode: String? = null,
     /** Служебный чат RyzikChat Info. */
     val isService: Boolean = false,
@@ -335,3 +337,22 @@ fun callDuration(ms: Long): String {
     val s = ms / 1000
     return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s / 60 % 60, s % 60) else "%d:%02d".format(s / 60, s % 60)
 }
+
+@Serializable
+data class UsernameCheck(val ok: Boolean, val error: String? = null, val message: String? = null)
+
+/** Самообновление сервера (админ-панель → Сервер). */
+@Serializable
+data class ServerStatus(
+    val version: String = "",
+    val latest: String? = null,
+    val autoUpdate: Boolean = true,
+    val supervised: Boolean = false,
+    val checkedAt: Long? = null,
+    val error: String? = null,
+    val updating: Boolean = false,
+    val updatedTo: String? = null,
+)
+
+@Serializable
+data class ServerUpdateResult(val updated: Boolean, val version: String, val latest: String? = null, val restarting: Boolean = false)

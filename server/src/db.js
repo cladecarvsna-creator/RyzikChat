@@ -222,6 +222,11 @@ function migrate(db) {
     db.exec("ALTER TABLE gift_items ADD COLUMN caption TEXT NOT NULL DEFAULT ''");
     db.exec("ALTER TABLE gift_items ADD COLUMN animation TEXT NOT NULL DEFAULT 'none'");
   }
+  // Публичный @юзернейм группы или канала.
+  if (!cols('chats').includes('username')) {
+    db.exec('ALTER TABLE chats ADD COLUMN username TEXT');
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS chats_username ON chats(lower(username)) WHERE username IS NOT NULL');
+  }
   if (!cols('chats').includes('wallpaper_file_id')) db.exec('ALTER TABLE chats ADD COLUMN wallpaper_file_id TEXT');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS chats_invite_code ON chats(invite_code)');
   if (!cols('users').includes('email')) {

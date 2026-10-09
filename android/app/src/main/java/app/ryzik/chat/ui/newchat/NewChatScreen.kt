@@ -81,6 +81,8 @@ fun NewChatScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, addToChatId:
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var isPublic by remember { mutableStateOf(false) }
+    var groupUsername by remember { mutableStateOf("") }
+    var usernameOk by remember { mutableStateOf(true) }
     var avatar by remember { mutableStateOf<android.net.Uri?>(null) }
 
     LaunchedEffect(query) {
@@ -113,6 +115,7 @@ fun NewChatScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, addToChatId:
                 FloatingActionButton(onClick = {
                     if (busy) return@FloatingActionButton
                     if (addToChatId == null && groupTitle.isBlank()) { error = "Придумайте название группы"; return@FloatingActionButton }
+                    if (addToChatId == null && isPublic && !usernameOk) { error = "Выберите свободный юзернейм или оставьте поле пустым"; return@FloatingActionButton }
                     busy = true
                     scope.launch {
                         runCatching {
@@ -121,7 +124,7 @@ fun NewChatScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, addToChatId:
                                 onBack()
                             } else {
                                 val fileId = avatar?.let { repo.uploadAvatar(it) }
-                                val c = repo.createGroup(groupTitle.trim(), selected.map { it.id }, isPublic, avatarFileId = fileId)
+                                val c = repo.createGroup(groupTitle.trim(), selected.map { it.id }, isPublic, avatarFileId = fileId, username = groupUsername.takeIf { isPublic && it.isNotBlank() })
                                 onOpenChat(c.id)
                             }
                         }.onFailure { error = it.userMessage() }
@@ -152,6 +155,10 @@ fun NewChatScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, addToChatId:
                     }
                     androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
                     app.ryzik.chat.ui.channel.VisibilitySelector(isPublic, channel = false, onChange = { isPublic = it })
+                    if (isPublic) {
+                        androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
+                        app.ryzik.chat.ui.channel.ChatUsernameField(groupUsername, { groupUsername = it }, onValid = { usernameOk = it })
+                    }
                 }
             }
             OutlinedTextField(

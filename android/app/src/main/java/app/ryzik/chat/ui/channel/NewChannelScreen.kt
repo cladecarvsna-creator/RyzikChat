@@ -54,6 +54,8 @@ fun NewChannelScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
     var description by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var isPublic by remember { mutableStateOf(true) }
+    var username by remember { mutableStateOf("") }
+    var usernameOk by remember { mutableStateOf(true) }
     var avatar by remember { mutableStateOf<android.net.Uri?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var shown by remember { mutableStateOf(false) }
@@ -71,11 +73,12 @@ fun NewChannelScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
             FloatingActionButton(onClick = {
                 if (busy) return@FloatingActionButton
                 if (title.isBlank()) { error = "Придумайте название канала"; return@FloatingActionButton }
+                if (isPublic && !usernameOk) { error = "Выберите свободный юзернейм или оставьте поле пустым"; return@FloatingActionButton }
                 busy = true
                 scope.launch {
                     runCatching {
                         val fileId = avatar?.let { repo.uploadAvatar(it) }
-                        repo.createChannel(title.trim(), description.trim(), isPublic, fileId)
+                        repo.createChannel(title.trim(), description.trim(), isPublic, fileId, username.takeIf { isPublic && it.isNotBlank() })
                     }
                         .onSuccess { onOpenChat(it.id) }
                         .onFailure { error = it.userMessage() }
@@ -112,6 +115,7 @@ fun NewChannelScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
             )
             VisibilitySelector(isPublic, channel = true, onChange = { isPublic = it })
+            if (isPublic) ChatUsernameField(username, { username = it }, onValid = { usernameOk = it })
             if (error != null) Text(error!!, color = MaterialTheme.colorScheme.error)
             Text(
                 "В канал пишете вы и назначенные вами админы. Остальные подписываются, читают и ставят реакции. " +

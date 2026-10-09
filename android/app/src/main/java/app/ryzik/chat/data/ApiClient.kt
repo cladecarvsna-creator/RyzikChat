@@ -186,8 +186,9 @@ class ApiClient(
     suspend fun openDirect(userId: String) =
         call("POST", "/api/chats/direct", buildJsonObject { put("userId", userId) }, Chat.serializer())
 
-    suspend fun createGroup(title: String, memberIds: List<String>, isPublic: Boolean = false, description: String = "", avatarFileId: String? = null) =
+    suspend fun createGroup(title: String, memberIds: List<String>, isPublic: Boolean = false, description: String = "", avatarFileId: String? = null, username: String? = null) =
         call("POST", "/api/chats/group", JsonObject(buildMap {
+            username?.takeIf { it.isNotBlank() }?.let { put("username", JsonPrimitive(it)) }
             put("title", JsonPrimitive(title))
             put("memberIds", kotlinx.serialization.json.JsonArray(memberIds.map { JsonPrimitive(it) }))
             put("isPublic", JsonPrimitive(isPublic))
@@ -218,13 +219,21 @@ class ApiClient(
             archived?.let { put("archived", JsonPrimitive(it)) }
         }), Chat.serializer())
 
-    suspend fun createChannel(title: String, description: String, isPublic: Boolean = true, avatarFileId: String? = null) =
+    suspend fun createChannel(title: String, description: String, isPublic: Boolean = true, avatarFileId: String? = null, username: String? = null) =
         call("POST", "/api/chats/channel", buildJsonObject {
+            username?.takeIf { it.isNotBlank() }?.let { put("username", it) }
             put("title", title)
             put("description", description)
             put("isPublic", isPublic)
             avatarFileId?.let { put("avatarFileId", it) }
         }, Chat.serializer())
+
+    suspend fun setChatUsername(chatId: String, username: String) =
+        call("PATCH", "/api/chats/$chatId", buildJsonObject { put("username", username) }, Chat.serializer())
+    suspend fun chatByUsername(name: String) =
+        call("GET", "/api/chats/by-username/" + java.net.URLEncoder.encode(name.removePrefix("@"), "UTF-8"), null, Chat.serializer())
+    suspend fun checkChatUsername(name: String, chatId: String?) =
+        call("GET", "/api/chat-username-check?username=" + java.net.URLEncoder.encode(name, "UTF-8") + (chatId?.let { "&chatId=$it" } ?: ""), null, UsernameCheck.serializer())
 
     suspend fun searchChannels(q: String) =
         call("GET", "/api/channels/search?q=" + java.net.URLEncoder.encode(q, "UTF-8"), null, ListSerializer(Chat.serializer()))
@@ -383,6 +392,8 @@ class ApiClient(
     suspend fun unbanChat(chatId: String) = call("DELETE", "/api/admin/chats/$chatId/ban", null, AdminChat.serializer())
     suspend fun deleteChatAsAdmin(chatId: String, reason: String) =
         call("DELETE", "/api/admin/chats/$chatId", buildJsonObject { put("reason", reason) }, JsonObject.serializer())
+    suspend fun serverStatus() = call("GET", "/api/admin/server", null, ServerStatus.serializer())
+    suspend fun updateServer() = call("POST", "/api/admin/server/update", null, ServerUpdateResult.serializer())
     suspend fun moderationLog() = call("GET", "/api/admin/log", null, ListSerializer(ModerationLogEntry.serializer()))
 
     suspend fun setAdmin(userId: String, isAdmin: Boolean) =

@@ -1,5 +1,6 @@
 package app.ryzik.chat.ui.profile
 
+import androidx.compose.material.icons.rounded.AlternateEmail
 import androidx.compose.material.icons.rounded.CardGiftcard
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Block
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -409,6 +411,7 @@ fun ChatInfoScreen(
     var newDescription by remember { mutableStateOf("") }
     var avatarBusy by remember { mutableStateOf(false) }
     var infoError by remember { mutableStateOf<String?>(null) }
+    var editUsername by remember { mutableStateOf<String?>(null) }
     val context = androidx.compose.ui.platform.LocalContext.current
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     val myId = repo.myId
@@ -470,6 +473,7 @@ fun ChatInfoScreen(
                             else -> "частный канал"
                         }
                         Text("$kind · $count", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        chat.username?.let { Text("@$it", color = MaterialTheme.colorScheme.primary) }
                         if (chat.description.isNotBlank()) {
                             Spacer(Modifier.height(12.dp))
                             Text(chat.description, textAlign = TextAlign.Center)
@@ -482,6 +486,35 @@ fun ChatInfoScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+            chat.username?.takeIf { isGroupOrChannel }?.let { uname ->
+                item {
+                    val link = app.ryzik.chat.ui.channel.usernameLink(uname)
+                    ListItem(
+                        headlineContent = { Text("@$uname") },
+                        supportingContent = { Text("$link · нажмите, чтобы скопировать") },
+                        leadingContent = { Icon(Icons.Rounded.AlternateEmail, null, tint = MaterialTheme.colorScheme.primary) },
+                        trailingContent = {
+                            IconButton(onClick = {
+                                val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
+                                    .putExtra(android.content.Intent.EXTRA_TEXT, "«${chat.title}» в RyzikChat: @$uname ($link)")
+                                context.startActivity(android.content.Intent.createChooser(send, "Поделиться"))
+                            }) { Icon(Icons.Rounded.Share, "Поделиться") }
+                        },
+                        modifier = Modifier.clickable {
+                            clipboard.setText(androidx.compose.ui.text.AnnotatedString("@$uname"))
+                            android.widget.Toast.makeText(context, "Юзернейм скопирован", android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                    )
+                }
+            }
+            if (isGroupOrChannel && chat.myRole == "owner" && chat.isPublic) item {
+                ListItem(
+                    headlineContent = { Text(if (chat.username == null) "Задать юзернейм" else "Изменить юзернейм") },
+                    supportingContent = { Text("Публичная ссылка вида @имя, по ней находят в поиске") },
+                    leadingContent = { Icon(Icons.Rounded.Edit, null) },
+                    modifier = Modifier.clickable { editUsername = chat.username.orEmpty() },
+                )
             }
             if (isGroupOrChannel && chat.myRole != null) {
                 val code = chat.inviteCode
@@ -639,6 +672,33 @@ fun ChatInfoScreen(
                 }) { Text("Сохранить") }
             },
             dismissButton = { TextButton(onClick = { renaming = false }) { Text("Отмена") } },
+        )
+    }
+    val usernameDraft = editUsername
+    if (usernameDraft != null && chat != null) {
+        var value by remember(chat.id) { mutableStateOf(usernameDraft) }
+        var ok by remember { mutableStateOf(true) }
+        var err by remember { mutableStateOf<String?>(null) }
+        AlertDialog(
+            onDismissRequest = { editUsername = null },
+            shape = RoundedCornerShape(28.dp),
+            title = { Text("Публичная ссылка") },
+            text = {
+                Column {
+                    app.ryzik.chat.ui.channel.ChatUsernameField(value, { value = it }, chatId = chat.id, onValid = { ok = it })
+                    err?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = ok || value.isBlank(), onClick = {
+                    scope.launch {
+                        runCatching { repo.setChatUsername(chat.id, value.trim()) }
+                            .onSuccess { editUsername = null }
+                            .onFailure { err = it.userMessage() }
+                    }
+                }) { Text(if (value.isBlank()) "Убрать" else "Сохранить") }
+            },
+            dismissButton = { TextButton(onClick = { editUsername = null }) { Text("Отмена") } },
         )
     }
 }

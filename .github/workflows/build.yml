@@ -27,6 +27,8 @@ jobs:
 
   android:
     name: Android (APK)
+    # Релиз с сервером выходит только после зелёных тестов сервера: серверы обновляются из него сами.
+    needs: server
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -82,6 +84,12 @@ jobs:
           }, open('update.json', 'w', encoding='utf-8'), ensure_ascii=False)
           PY
           cat update.json
+      - name: Сервер для самообновления (server.json и ryzikchat-server.tar.gz)
+        working-directory: .
+        run: |
+          git archive --format=tar.gz --prefix=ryzikchat-server/ -o android/ryzikchat-server.tar.gz HEAD:server
+          node -e "const p=require('./server/package.json');require('fs').writeFileSync('android/server.json',JSON.stringify({version:p.version,commit:process.env.GITHUB_SHA}))"
+          cat android/server.json
       - uses: actions/upload-artifact@v4
         with:
           name: RyzikChat-apk
@@ -104,3 +112,5 @@ jobs:
           files: |
             android/RyzikChat.apk
             android/update.json
+            android/server.json
+            android/ryzikchat-server.tar.gz

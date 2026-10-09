@@ -357,7 +357,7 @@ fun ChatListScreen(
                         )
                     }
                 }
-                val inviteCode = if (query.contains("join/")) parseInviteCode(query) else null
+                val inviteCode = if (query.contains("join/") || query.contains("://c/")) parseInviteCode(query) else null
                 if (inviteCode != null) {
                     item(key = "invite") {
                         ListItem(
@@ -380,7 +380,7 @@ fun ChatListScreen(
                     items(foundChannels, key = { "c_" + it.id }) { c ->
                         ListItem(
                             headlineContent = { Text(c.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                            supportingContent = { Text((if (c.type == "group") membersText(c.memberCount) else subscribersText(c.memberCount)) + c.description.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            supportingContent = { Text((c.username?.let { "@$it · " } ?: "") + (if (c.type == "group") membersText(c.memberCount) else subscribersText(c.memberCount)) + c.description.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             leadingContent = { Avatar(c.title, repo.avatarUrl(c.avatarFileId), 48.dp) },
                             modifier = Modifier.animateItem().combinedClickable(onClick = { onOpenChat(c.id) }),
                         )

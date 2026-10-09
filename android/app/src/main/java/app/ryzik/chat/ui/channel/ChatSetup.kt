@@ -111,10 +111,20 @@ private fun VisibilityOption(selected: Boolean, icon: ImageVector, title: String
 /** Ссылка-приглашение, которую можно отправить друзьям. */
 fun inviteLink(code: String) = "ryzik://join/$code"
 
-/** Достаёт код приглашения из ссылки ryzik://join/<код> или из самого кода. */
+/** Ссылка на открытую группу или канал по @юзернейму. */
+fun usernameLink(username: String) = "ryzik://c/$username"
+
+/**
+ * Достаёт код приглашения из ссылки ryzik://join/<код> или из самого кода.
+ * Для ссылки ryzik://c/<юзернейм> возвращает «@юзернейм».
+ */
 fun parseInviteCode(text: String): String? {
     val t = text.trim()
     if (t.isEmpty()) return null
+    if (t.contains("://c/")) {
+        val name = t.substringAfter("://c/").substringBefore('?').trim('/', ' ')
+        return if (name.matches(Regex("[A-Za-z][A-Za-z0-9_]{4,31}"))) "@$name" else null
+    }
     val code = t.substringAfter("join/", t).substringBefore('?').trim('/', ' ')
     return code.takeIf { it.matches(Regex("[A-Za-z0-9_-]{6,64}")) }
 }
@@ -139,7 +149,7 @@ fun InviteDialog(code: String, onDismiss: () -> Unit, onOpenChat: (String) -> Un
     var error by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
     var busy by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(code) {
-        runCatching { repo.invitePreview(code) }.onSuccess { chat = it }.onFailure { error = it.userMessage() }
+        runCatching { repo.invitePreviewAny(code) }.onSuccess { chat = it }.onFailure { error = it.userMessage() }
     }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
@@ -155,7 +165,8 @@ fun InviteDialog(code: String, onDismiss: () -> Unit, onOpenChat: (String) -> Un
                 if (c != null) {
                     Text(
                         (if (c.type == "channel") app.ryzik.chat.ui.chats.subscribersText(c.memberCount) else membersText(c.memberCount)) +
-                            if (c.isPublic) "" else " · частн${if (c.type == "channel") "ый канал" else "ая группа"}",
+                            (if (c.isPublic) "" else " · частн${if (c.type == "channel") "ый канал" else "ая группа"}") +
+                            (c.username?.let { " · @$it" } ?: ""),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     if (c.description.isNotBlank()) {
@@ -172,7 +183,7 @@ fun InviteDialog(code: String, onDismiss: () -> Unit, onOpenChat: (String) -> Un
                 if (c.myRole != null) onOpenChat(c.id) else {
                     busy = true
                     scope.launch {
-                        runCatching { repo.joinInvite(code) }
+                        runCatching { repo.joinAny(code, c) }
                             .onSuccess { onOpenChat(it.id) }
                             .onFailure { error = it.userMessage() }
                         busy = false
@@ -190,4 +201,48 @@ fun InviteDialog(code: String, onDismiss: () -> Unit, onOpenChat: (String) -> Un
         },
         dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Закрыть") } },
     )
+}
+
+/**
+ * Поле @юзернейма для открытой группы или канала с проверкой, свободен ли он.
+ * [onValid] получает true, когда поле пустое или юзернейм свободен.
+ */
+@Composable
+fun ChatUsernameField(value: String, onChange: (String) -> Unit, chatId: String? = null, onValid: (Boolean) -> Unit = {}, modifier: Modifier = Modifier) {
+    val repo = app.ryzik.chat.RyzikApp.instance.repo
+    var status by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<Pair<Boolean, String>?>(null) }
+    androidx.compose.runtime.LaunchedEffect(value) {
+        if (value.isBlank()) { status = null; onValid(true); return@LaunchedEffect }
+        onValid(false)
+        kotlinx.coroutines.delay(400)
+        val r = runCatching { repo.api.checkChatUsername(value, chatId) }.getOrNull()
+        status = when {
+            r == null -> false to "Не удалось проверить"
+            r.ok -> true to "@$value свободен"
+            else -> false to (r.message ?: "Занят")
+        }
+        onValid(r?.ok == true)
+    }
+    Column(modifier) {
+        androidx.compose.material3.OutlinedTextField(
+            value = value,
+            onValueChange = { v -> onChange(v.removePrefix("@").filter { it.isLetterOrDigit() || it == '_' }.take(32)) },
+            label = { Text("Публичная ссылка") },
+            prefix = { Text("@") },
+            singleLine = true,
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        val st = status
+        Text(
+            st?.second ?: "По юзернейму вас найдут в поиске и откроют по ссылке ryzik://c/юзернейм. 5–32 символа: латиница, цифры и _.",
+            style = MaterialTheme.typography.bodySmall,
+            color = when (st?.first) {
+                true -> androidx.compose.ui.graphics.Color(0xFF2FBF71)
+                false -> MaterialTheme.colorScheme.error
+                null -> MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.padding(start = 4.dp, top = 4.dp),
+        )
+    }
 }

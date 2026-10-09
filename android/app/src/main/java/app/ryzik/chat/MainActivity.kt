@@ -82,7 +82,7 @@ class MainActivity : ComponentActivity() {
             data.lastPathSegment?.let { StickerViewer.open(it) }
             return
         }
-        if (data.scheme == "ryzik" && data.host == "join") {
+        if (data.scheme == "ryzik" && (data.host == "join" || data.host == "c")) {
             parseInviteCode(data.toString())?.let { pendingInvite.value = it }
         }
     }

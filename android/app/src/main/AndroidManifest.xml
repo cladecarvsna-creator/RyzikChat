@@ -46,6 +46,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="ryzik" android:host="join" />
+                <data android:scheme="ryzik" android:host="c" />
                 <data android:scheme="ryzik" android:host="stickers" />
             </intent-filter>
         </activity>

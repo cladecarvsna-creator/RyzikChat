@@ -1,3 +1,4 @@
+import { serverVersion } from './selfupdate.js';
 import express from 'express';
 import multer from 'multer';
 import crypto from 'node:crypto';
@@ -167,6 +168,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
       banned: !!chat.banned,
       banReason: chat.banned ? chat.ban_reason ?? '' : '',
       isPublic: !!chat.is_public,
+      username: chat.is_public ? chat.username ?? null : null,
       // Служебный чат RyzikChat Info: сюда приходят коды входа.
       isService: chat.created_by === SYSTEM_ID,
       ...(chat.type === 'direct' ? directFlags(chat.id, userId) : {}),
@@ -187,6 +189,19 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
   }
 
   const newInviteCode = () => crypto.randomBytes(9).toString('base64url');
+
+  // @юзернейм группы или канала: 5–32 символа, латиница, цифры и _, начинается с буквы.
+  // Общий с пользователями: один и тот же @ не может быть и у человека, и у группы.
+  const CHAT_USERNAME = /^[a-zA-Z][a-zA-Z0-9_]{4,31}$/;
+  function checkChatUsername(name, chatId = null) {
+    const u = String(name ?? '').trim().replace(/^@/, '');
+    if (!CHAT_USERNAME.test(u)) throw new HttpError(400, 'bad_username', 'Юзернейм: 5–32 символа, латиница, цифры и _, начинается с буквы');
+    const taken = db.prepare('SELECT id FROM chats WHERE lower(username) = lower(?)').get(u);
+    if ((taken && taken.id !== chatId) || db.prepare('SELECT 1 FROM users WHERE lower(username) = lower(?)').get(u)) {
+      throw new HttpError(409, 'username_taken', 'Этот юзернейм уже занят');
+    }
+    return u;
+  }
 
   function createChat({ type, title = '', description = '', createdBy, members, directKey = null, isPublic = false, avatarFileId = null }) {
     const id = newId();
@@ -381,7 +396,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     return token;
   }
 
-  app.get('/api/health', (_req, res) => res.json({ ok: true, name: 'RyzikChat', version: '0.7.3', apiVersion: 1 }));
+  app.get('/api/health', (_req, res) => res.json({ ok: true, name: 'RyzikChat', version: serverVersion(), apiVersion: 1 }));
 
   // Открытое описание API — чтобы можно было написать клиент под любое устройство.
   app.get('/api/openapi.json', (_req, res) => res.sendFile(path.join(import.meta.dirname, '..', 'openapi.json')));
@@ -397,7 +412,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
       throw new HttpError(400, 'bad_keys', 'Нет ключей шифрования');
     }
     const name = String(displayName ?? '').trim().slice(0, 64) || username;
-    if (db.prepare('SELECT 1 FROM users WHERE username = ?').get(username)) {
+    if (db.prepare('SELECT 1 FROM users WHERE username = ?').get(username) || db.prepare('SELECT 1 FROM chats WHERE lower(username) = lower(?)').get(username)) {
       throw new HttpError(409, 'username_taken', 'Это имя пользователя уже занято');
     }
     const result = tx(db, () => {
@@ -735,10 +750,15 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     const ids = [...new Set([req.userId, ...(req.body?.memberIds ?? []).map(String)])]
       .filter((id) => getUserRow.get(id));
     const description = String(req.body?.description ?? '').trim().slice(0, 500);
-    const chatId = tx(db, () => createChat({
-      type: 'group', title, description, createdBy: req.userId, members: ids,
-      isPublic: !!req.body?.isPublic, avatarFileId: req.body?.avatarFileId,
-    }));
+    const username = req.body?.username ? checkChatUsername(req.body.username) : null;
+    const chatId = tx(db, () => {
+      const id = createChat({
+        type: 'group', title, description, createdBy: req.userId, members: ids,
+        isPublic: !!req.body?.isPublic || !!username, avatarFileId: req.body?.avatarFileId,
+      });
+      if (username) db.prepare('UPDATE chats SET username = ? WHERE id = ?').run(username, id);
+      return id;
+    });
     for (const id of ids) if (id !== req.userId) hub.sendToUsers([id], { type: 'chat.new', chat: chatView(chatId, id), by: req.userId });
     res.status(201).json(chatView(chatId, req.userId));
   });
@@ -750,23 +770,52 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     const title = String(req.body?.title ?? '').trim().slice(0, 128);
     if (!title) throw new HttpError(400, 'bad_title', 'Укажите название канала');
     const description = String(req.body?.description ?? '').trim().slice(0, 500);
-    const chatId = tx(db, () => createChat({
-      type: 'channel', title, description, createdBy: req.userId, members: [req.userId],
-      isPublic: req.body?.isPublic !== false, avatarFileId: req.body?.avatarFileId,
-    }));
+    const username = req.body?.username ? checkChatUsername(req.body.username) : null;
+    const chatId = tx(db, () => {
+      const id = createChat({
+        type: 'channel', title, description, createdBy: req.userId, members: [req.userId],
+        isPublic: req.body?.isPublic !== false || !!username, avatarFileId: req.body?.avatarFileId,
+      });
+      if (username) db.prepare('UPDATE chats SET username = ? WHERE id = ?').run(username, id);
+      return id;
+    });
     res.status(201).json(chatView(chatId, req.userId));
   });
 
   /** Поиск открытых каналов и групп. */
   function searchPublic(req, res) {
     const q = String(req.query.q ?? '').trim();
+    const bare = q.replace(/^@/, '');
     const like = `%${q.replace(/[%_\\]/g, (c) => '\\' + c)}%`;
-    const rows = db.prepare(`SELECT c.id, (SELECT COUNT(*) FROM chat_members m WHERE m.chat_id = c.id) AS n FROM chats c
-      WHERE c.type IN ('channel', 'group') AND c.is_public = 1 AND c.banned = 0 AND (c.title LIKE ? ESCAPE '\\' OR c.description LIKE ? ESCAPE '\\')
-      ORDER BY n DESC LIMIT 30`).all(like, like);
+    const ulike = `%${bare.replace(/[%_\\]/g, (c) => '\\' + c)}%`;
+    // Точное совпадение @юзернейма — первым.
+    const rows = db.prepare(`SELECT c.id, (SELECT COUNT(*) FROM chat_members m WHERE m.chat_id = c.id) AS n,
+        (lower(c.username) = lower(?)) AS exact FROM chats c
+      WHERE c.type IN ('channel', 'group') AND c.is_public = 1 AND c.banned = 0
+        AND (c.title LIKE ? ESCAPE '\\' OR c.description LIKE ? ESCAPE '\\' OR c.username LIKE ? ESCAPE '\\')
+      ORDER BY exact DESC, n DESC LIMIT 30`).all(bare, like, like, ulike);
     res.json(rows.map((r) => chatView(r.id, req.userId, { preview: true })).filter(Boolean));
   }
   app.get('/api/channels/search', searchPublic);
+
+  /** Открытая группа или канал по @юзернейму (для ссылок ryzik://c/<юзернейм>). */
+  app.get('/api/chats/by-username/:name', (req, res) => {
+    const name = String(req.params.name).replace(/^@/, '');
+    const chat = db.prepare('SELECT id FROM chats WHERE lower(username) = lower(?) AND is_public = 1 AND banned = 0').get(name);
+    const view = chat && chatView(chat.id, req.userId, { preview: true });
+    if (!view) throw new HttpError(404, 'chat_not_found', 'Группа или канал не найдены');
+    res.json(view);
+  });
+
+  /** Свободен ли юзернейм для группы или канала. */
+  app.get('/api/chat-username-check', (req, res) => {
+    try {
+      checkChatUsername(req.query.username, req.query.chatId ? String(req.query.chatId) : null);
+      res.json({ ok: true });
+    } catch (e) {
+      res.json({ ok: false, error: e.code, message: e.message });
+    }
+  });
 
   function join(chat, userId) {
     requireChatNotBanned(chat);
@@ -824,13 +873,20 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
   app.patch('/api/chats/:id', (req, res) => {
     const m = requireMember(req.params.id, req.userId);
     const chat = getChatRow.get(req.params.id);
-    const { title, avatarFileId, description, isPublic } = req.body ?? {};
+    const { title, avatarFileId, description, isPublic, username } = req.body ?? {};
     if (!['group', 'channel'].includes(chat.type) || !['owner', 'admin'].includes(m.role)) {
       throw new HttpError(403, 'forbidden', 'Только владелец или админ');
     }
     if (isPublic !== undefined) {
       if (m.role !== 'owner') throw new HttpError(403, 'forbidden', 'Сделать открытым или частным может только владелец');
       db.prepare('UPDATE chats SET is_public = ? WHERE id = ?').run(isPublic ? 1 : 0, chat.id);
+      // Частной группе юзернейм не нужен — освобождаем его.
+      if (!isPublic) db.prepare('UPDATE chats SET username = NULL WHERE id = ?').run(chat.id);
+    }
+    if (username !== undefined) {
+      if (m.role !== 'owner') throw new HttpError(403, 'forbidden', 'Юзернейм меняет только владелец');
+      if (!username) db.prepare('UPDATE chats SET username = NULL WHERE id = ?').run(chat.id);
+      else db.prepare('UPDATE chats SET username = ?, is_public = 1 WHERE id = ?').run(checkChatUsername(username, chat.id), chat.id);
     }
     if (description !== undefined) db.prepare('UPDATE chats SET description = ? WHERE id = ?').run(String(description).slice(0, 500), chat.id);
     if (title !== undefined) db.prepare('UPDATE chats SET title = ? WHERE id = ?').run(String(title).slice(0, 128), chat.id);
@@ -1346,6 +1402,22 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
   });
 
   // Админ: выдать или списать FLUX.
+  // Самообновление сервера: состояние и «обновить сейчас».
+  app.get('/api/admin/server', adminOnly, (_req, res) => {
+    const u = app.locals.selfUpdater;
+    res.json({ version: serverVersion(), autoUpdate: process.env.AUTO_UPDATE !== 'off', supervised: process.env.RYZIK_SUPERVISED === '1', ...(u?.status ?? {}) });
+  });
+  app.post('/api/admin/server/update', adminOnly, async (_req, res, next) => {
+    try {
+      const u = app.locals.selfUpdater;
+      if (!u) throw new HttpError(400, 'no_updater', 'Самообновление недоступно');
+      const version = await app.locals.applyServerUpdate();
+      res.json({ updated: !!version, version: version ?? serverVersion(), latest: u.status.latest, restarting: !!version && process.env.RYZIK_SUPERVISED === '1' });
+    } catch (e) {
+      next(e instanceof HttpError ? e : new HttpError(502, 'update_failed', `Не удалось обновить: ${e.message}`));
+    }
+  });
+
   app.post('/api/admin/users/:id/flux', adminOnly, (req, res) => {
     const amount = Math.trunc(Number(req.body?.amount));
     if (!Number.isFinite(amount) || amount === 0 || Math.abs(amount) > 100_000_000) throw new HttpError(400, 'bad_amount', 'Укажите количество FLUX');

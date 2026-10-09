@@ -589,8 +589,8 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
 
     suspend fun openDirect(userId: String): Chat = api.openDirect(userId).also { upsertChat(it) }
 
-    suspend fun createGroup(title: String, memberIds: List<String>, isPublic: Boolean = false, description: String = "", avatarFileId: String? = null): Chat =
-        api.createGroup(title, memberIds, isPublic, description, avatarFileId).also { upsertChat(it) }
+    suspend fun createGroup(title: String, memberIds: List<String>, isPublic: Boolean = false, description: String = "", avatarFileId: String? = null, username: String? = null): Chat =
+        api.createGroup(title, memberIds, isPublic, description, avatarFileId, username).also { upsertChat(it) }
 
     suspend fun setChatAvatar(chatId: String, avatarFileId: String?) = upsertChat(api.setChatAvatar(chatId, avatarFileId))
 
@@ -620,8 +620,15 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
     suspend fun setMuted(chatId: String, muted: Boolean) = upsertChat(api.chatSettings(chatId, muted = muted))
     suspend fun setArchived(chatId: String, archived: Boolean) = upsertChat(api.chatSettings(chatId, archived = archived))
 
-    suspend fun createChannel(title: String, description: String, isPublic: Boolean = true, avatarFileId: String? = null): Chat =
-        api.createChannel(title, description, isPublic, avatarFileId).also { upsertChat(it) }
+    suspend fun createChannel(title: String, description: String, isPublic: Boolean = true, avatarFileId: String? = null, username: String? = null): Chat =
+        api.createChannel(title, description, isPublic, avatarFileId, username).also { upsertChat(it) }
+
+    suspend fun setChatUsername(chatId: String, username: String) = upsertChat(api.setChatUsername(chatId, username))
+
+    /** Приглашение: код ссылки ryzik://join/<код> или «@юзернейм» открытой группы или канала. */
+    suspend fun invitePreviewAny(code: String): Chat = if (code.startsWith("@")) api.chatByUsername(code) else invitePreview(code)
+    suspend fun joinAny(code: String, chat: Chat): Chat =
+        if (code.startsWith("@")) api.subscribe(chat.id).also { upsertChat(it) } else joinInvite(code)
 
     suspend fun searchChannels(q: String): List<Chat> = api.searchChannels(q)
 

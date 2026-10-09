@@ -4,14 +4,38 @@ import { fileURLToPath } from 'node:url';
 import { openDb } from './db.js';
 import { createApp } from './app.js';
 import { Hub } from './realtime.js';
+import { SelfUpdater, RESTART_CODE } from './selfupdate.js';
 
 /** Откуда сервер забирает свежие сборки приложения (папка с update.json и RyzikChat.apk). */
 export const DEFAULT_UPDATE_SOURCE = 'https://github.com/cladecarvsna-creator/RyzikChat/releases/download/ryzikchat-latest';
 
-export function startServer({ port = 8080, dataDir = './data', adminUsernames = [], updateSource = null } = {}) {
+export function startServer({ port = 8080, dataDir = './data', adminUsernames = [], updateSource = null, autoUpdate = false } = {}) {
   const db = openDb(dataDir);
   const hub = new Hub();
   const app = createApp({ db, dataDir, hub, adminUsernames, updateSource });
+  // Самообновление сервера с GitHub (данные в dataDir не трогаются, перед обновлением — копия базы).
+  const updater = new SelfUpdater({
+    dataDir,
+    backupDb: (file) => db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`),
+  });
+  app.locals.selfUpdater = updater;
+  app.locals.applyServerUpdate = async () => {
+    const v = await updater.checkAndApply();
+    if (v) {
+      if (process.env.RYZIK_SUPERVISED === '1') {
+        console.log('Перезапускаюсь с новой версией…');
+        setTimeout(() => process.exit(RESTART_CODE), 1500);
+      } else {
+        console.log('Сервер обновлён. Перезапустите его (npm start), чтобы включилась новая версия.');
+      }
+    }
+    return v;
+  };
+  if (autoUpdate) {
+    const tick = () => app.locals.applyServerUpdate().catch((e) => console.warn(`Обновление сервера: ${e.message}`));
+    setTimeout(tick, 60_000).unref();
+    setInterval(tick, 30 * 60_000).unref();
+  }
   // Проверяем новую сборку при запуске и раз в 3 часа.
   if (updateSource) {
     const sync = () => app.locals.syncUpdate().then((u) => u && console.log(`Скачана сборка приложения ${u.versionName}`))
@@ -39,7 +63,9 @@ if (isMain) {
   const env = process.env.UPDATE_SOURCE ?? 'off';
   const src = env === 'github' ? DEFAULT_UPDATE_SOURCE : env;
   const updateSource = src && src !== 'off' ? src.replace(/\/$/, '') : null;
-  startServer({ port, dataDir, adminUsernames, updateSource }).then(({ port: p }) => {
+  // Сервер сам обновляется с GitHub раз в 30 минут. Выключить: AUTO_UPDATE=off.
+  const autoUpdate = process.env.AUTO_UPDATE !== 'off';
+  startServer({ port, dataDir, adminUsernames, updateSource, autoUpdate }).then(({ port: p }) => {
     console.log(`RyzikChat server: http://0.0.0.0:${p} (данные: ${dataDir})`);
   });
 }

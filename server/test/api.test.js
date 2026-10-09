@@ -132,6 +132,21 @@ test('каналы, премиум, сигналы звонков, докуме�
   assert.equal(found.body[0].id, ch.body.id);
   assert.equal(found.body[0].myRole, null);
 
+  // Публичный @юзернейм: поиск, открытие по ссылке, занятость, освобождение при переходе в частный.
+  assert.equal((await api('PATCH', `/api/chats/${ch.body.id}`, { username: 'ab' }, owner.body.token)).body.error, 'bad_username');
+  assert.equal((await api('PATCH', `/api/chats/${ch.body.id}`, { username: 'chanfan' }, owner.body.token)).body.error, 'username_taken');
+  assert.equal((await api('PATCH', `/api/chats/${ch.body.id}`, { username: 'ryzik_news' }, owner.body.token)).body.username, 'ryzik_news');
+  assert.equal((await api('GET', '/api/channels/search?q=@ryzik_news', null, fan.body.token)).body[0].id, ch.body.id);
+  assert.equal((await api('GET', '/api/chats/by-username/Ryzik_News', null, fan.body.token)).body.id, ch.body.id);
+  assert.equal((await api('GET', '/api/chat-username-check?username=ryzik_news', null, fan.body.token)).body.ok, false);
+  const grp = await api('POST', '/api/chats/group', { title: 'Клуб', username: 'ryzik_club' }, fan.body.token);
+  assert.equal(grp.body.isPublic, true);
+  assert.equal(grp.body.username, 'ryzik_club');
+  assert.equal((await api('POST', '/api/chats/group', { title: 'Клуб 2', username: 'RYZIK_CLUB' }, owner.body.token)).body.error, 'username_taken');
+  assert.equal((await api('POST', '/api/auth/register', { username: 'ryzik_club', password: 'x'.repeat(64), publicKey: 'k', encryptedPrivateKey: 'k' })).body.error, 'username_taken');
+  await api('PATCH', `/api/chats/${grp.body.id}`, { isPublic: false }, fan.body.token);
+  assert.equal((await api('GET', '/api/chat-username-check?username=ryzik_club', null, fan.body.token)).body.ok, true);
+
   const post = await api('POST', `/api/chats/${ch.body.id}/messages`, { type: 'text', payload: '{"v":0,"plain":{"text":"Привет"}}' }, owner.body.token);
   assert.equal(post.status, 201);
   // Не подписан, но читать публичный канал можно
