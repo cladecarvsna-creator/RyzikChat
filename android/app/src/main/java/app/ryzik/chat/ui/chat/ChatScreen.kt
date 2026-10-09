@@ -160,6 +160,7 @@ import app.ryzik.chat.data.SendStatus
 import app.ryzik.chat.data.UiMessage
 import app.ryzik.chat.data.userMessage
 import app.ryzik.chat.ui.components.Avatar
+import app.ryzik.chat.ui.components.VerifiedMark
 import app.ryzik.chat.ui.components.BadgeIcons
 import app.ryzik.chat.ui.components.TypingDots
 import app.ryzik.chat.ui.components.formatDay
@@ -459,8 +460,8 @@ fun ChatScreen(
                             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                                    if (chat?.isService == true) Icon(Icons.Rounded.Verified, "Официальный чат", Modifier.padding(start = 4.dp).size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                                    if (peer != null) BadgeIcons(peer.badges, peer.isAdmin, 16.dp, peer.isPremium, peer.emojiStatus)
+                                    if (chat?.verified == true && peer == null) VerifiedMark(16.dp, Modifier.padding(start = 4.dp))
+                                    if (peer != null) BadgeIcons(peer.badges, peer.isAdmin, 16.dp, peer.isPremium, peer.emojiStatus, peer.verified)
                                 }
                             AnimatedContent(
                                 targetState = when {

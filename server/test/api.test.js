@@ -563,3 +563,22 @@ test('проверка запросов, пропавшие файлы, повт
   ws.close();
   assert.equal((await api('GET', '/api/me', null, t)).status, 200);
 });
+
+test('галочка верификации: админ выдаёт людям и каналам', async () => {
+  const admin = (await api('POST', '/api/auth/login', { username: 'alice', password: 'x'.repeat(64) })).body.token;
+  const u = await reg('verifyme');
+  assert.equal(u.body.user.verified, false);
+  assert.equal((await api('PUT', `/api/admin/users/${u.body.user.id}/verified`, { verified: true }, u.body.token)).status, 403);
+  const r = await api('PUT', `/api/admin/users/${u.body.user.id}/verified`, { verified: true }, admin);
+  assert.equal(r.body.verified, true);
+  assert.equal((await api('GET', `/api/users/${u.body.user.id}`, null, u.body.token)).body.verified, true);
+  const ch = (await api('POST', '/api/chats/channel', { title: 'Новости', username: 'verifiednews', isPublic: true }, u.body.token)).body;
+  assert.equal(ch.verified, false);
+  const found = (await api('GET', '/api/admin/chats?q=@verifiednews', null, admin)).body;
+  assert.equal(found[0].id, ch.id);
+  assert.equal((await api('PUT', `/api/admin/chats/${ch.id}/verified`, { verified: true }, admin)).body.verified, true);
+  assert.equal((await api('GET', `/api/chats/${ch.id}`, null, u.body.token)).body.verified, true);
+  assert.ok((await api('GET', '/api/admin/chats', null, admin)).body.some((c) => c.id === ch.id), 'верифицированные видны в списке');
+  await api('PUT', `/api/admin/users/${u.body.user.id}/verified`, { verified: false }, admin);
+  assert.equal((await api('GET', `/api/users/${u.body.user.id}`, null, u.body.token)).body.verified, false);
+});

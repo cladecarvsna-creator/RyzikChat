@@ -1,5 +1,6 @@
 package app.ryzik.chat.ui.premium
 
+import androidx.compose.material.icons.rounded.Shield
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -84,6 +85,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.ryzik.chat.ui.components.VerifiedMark
 import app.ryzik.chat.RyzikApp
 import app.ryzik.chat.data.AuthState
 import app.ryzik.chat.data.ProfileStyle
@@ -164,6 +166,7 @@ fun ProfileHeader(
     style: ProfileStyle?,
     bannerUrl: String?,
     modifier: Modifier = Modifier,
+    verified: Boolean = false,
     avatarSize: Dp = 112.dp,
     avatarScale: Float = 1f,
 ) {
@@ -234,12 +237,13 @@ fun ProfileHeader(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),
             )
+            if (verified) { Spacer(Modifier.width(4.dp)); VerifiedMark(24.dp) }
             if (isPremium) {
                 if (!emojiStatus.isNullOrBlank()) EmojiStatus(emojiStatus, 24.sp) else { Spacer(Modifier.width(4.dp)); PremiumStar(24.dp) }
             }
             if (isAdmin) {
                 Spacer(Modifier.width(4.dp))
-                Icon(Icons.Rounded.Verified, "Администратор", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                Icon(Icons.Rounded.Shield, "Администратор", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
             }
         }
     }

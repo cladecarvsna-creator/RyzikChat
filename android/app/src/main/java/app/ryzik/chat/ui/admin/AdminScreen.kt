@@ -165,7 +165,7 @@ fun AdminScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit) {
             }
             items(found, key = { "u" + it.id }) { u ->
                 ListItem(
-                    headlineContent = { Row(verticalAlignment = Alignment.CenterVertically) { Text(u.displayName); BadgeIcons(u.badges, u.isAdmin) } },
+                    headlineContent = { Row(verticalAlignment = Alignment.CenterVertically) { Text(u.displayName); BadgeIcons(u.badges, u.isAdmin, verified = u.verified) } },
                     supportingContent = { Text("@${u.username}") },
                     leadingContent = { Avatar(u.displayName, repo.avatarUrl(u.avatarFileId), 44.dp) },
                     modifier = Modifier.animateItem().clickable { onOpenProfile(u.id) },

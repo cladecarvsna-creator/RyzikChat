@@ -105,6 +105,7 @@ import app.ryzik.chat.data.AuthState
 import app.ryzik.chat.data.Chat
 import app.ryzik.chat.data.User
 import app.ryzik.chat.ui.components.Avatar
+import app.ryzik.chat.ui.components.VerifiedMark
 import app.ryzik.chat.ui.components.BadgeIcons
 import app.ryzik.chat.ui.components.TypingDots
 import app.ryzik.chat.ui.components.formatListTime
@@ -341,7 +342,7 @@ fun ChatListScreen(
                             headlineContent = {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(u.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    BadgeIcons(u.badges, u.isAdmin, isPremium = u.isPremium, emojiStatus = u.emojiStatus)
+                                    BadgeIcons(u.badges, u.isAdmin, isPremium = u.isPremium, emojiStatus = u.emojiStatus, verified = u.verified)
                                 }
                             },
                             supportingContent = { Text("@${u.username}") },
@@ -466,9 +467,9 @@ private fun ChatRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                     Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                    if (chat.isService) Icon(Icons.Rounded.Verified, "Официальный чат", Modifier.padding(start = 4.dp).size(16.dp), tint = scheme.primary)
+                    if (chat.verified && peer == null) VerifiedMark(16.dp, Modifier.padding(start = 4.dp))
                     else if (chat.type == "channel") Icon(Icons.Rounded.Campaign, null, Modifier.padding(start = 4.dp).size(16.dp), tint = scheme.primary)
-                    if (peer != null) BadgeIcons(peer.badges, peer.isAdmin, 16.dp, peer.isPremium, peer.emojiStatus)
+                    if (peer != null) BadgeIcons(peer.badges, peer.isAdmin, 16.dp, peer.isPremium, peer.emojiStatus, peer.verified)
                     if (chat.muted) Icon(Icons.Rounded.NotificationsOff, null, Modifier.padding(start = 4.dp).size(14.dp), tint = scheme.outline)
                 }
                 val last = chat.lastMessage

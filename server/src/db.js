@@ -227,6 +227,9 @@ function migrate(db) {
     db.exec('ALTER TABLE chats ADD COLUMN username TEXT');
     db.exec('CREATE UNIQUE INDEX IF NOT EXISTS chats_username ON chats(lower(username)) WHERE username IS NOT NULL');
   }
+  // Галочка верификации: выдаёт администратор людям, группам и каналам.
+  if (!cols('users').includes('verified')) db.exec('ALTER TABLE users ADD COLUMN verified INTEGER NOT NULL DEFAULT 0');
+  if (!cols('chats').includes('verified')) db.exec('ALTER TABLE chats ADD COLUMN verified INTEGER NOT NULL DEFAULT 0');
   if (!cols('chats').includes('wallpaper_file_id')) db.exec('ALTER TABLE chats ADD COLUMN wallpaper_file_id TEXT');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS chats_invite_code ON chats(invite_code)');
   // Поиск повторной отправки сообщения по clientId.

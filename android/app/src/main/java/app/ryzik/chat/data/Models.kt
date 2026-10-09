@@ -22,6 +22,8 @@ data class User(
     val bio: String = "",
     val avatarFileId: String? = null,
     val isAdmin: Boolean = false,
+    /** Галочка верификации, выдаёт администратор. */
+    val verified: Boolean = false,
     val isPremium: Boolean = false,
     val publicKey: String = "",
     val online: Boolean = false,
@@ -103,6 +105,8 @@ data class AdminChat(
     val isPublic: Boolean = false,
     val banned: Boolean = false,
     val banReason: String = "",
+    val verified: Boolean = false,
+    val username: String? = null,
     val memberCount: Int = 0,
     val owner: User? = null,
     val createdAt: Long = 0,
@@ -199,6 +203,8 @@ data class Chat(
     val inviteCode: String? = null,
     /** Служебный чат RyzikChat Info. */
     val isService: Boolean = false,
+    /** Галочка верификации у группы или канала. */
+    val verified: Boolean = false,
     /** Личный чат: собеседник у меня в контактах / заблокирован мной. */
     val peerIsContact: Boolean = false,
     val peerBlocked: Boolean = false,

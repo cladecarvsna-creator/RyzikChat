@@ -1051,6 +1051,7 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
     suspend fun revokeBadge(userId: String, badgeId: String) = api.revokeBadge(userId, badgeId).also { rememberUsers(listOf(it)) }
     suspend fun setAdmin(userId: String, isAdmin: Boolean) = api.setAdmin(userId, isAdmin).also { rememberUsers(listOf(it)) }
     suspend fun setPremium(userId: String, isPremium: Boolean) = api.setPremium(userId, isPremium).also { rememberUsers(listOf(it)) }
+    suspend fun setVerified(userId: String, verified: Boolean) = api.setUserVerified(userId, verified).also { rememberUsers(listOf(it)) }
 
     // ================= Звонки =================
 

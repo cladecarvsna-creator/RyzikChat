@@ -1,5 +1,6 @@
 package app.ryzik.chat.ui.profile
 
+import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.AlternateEmail
 import androidx.compose.material.icons.rounded.CardGiftcard
 import androidx.compose.material.icons.rounded.Public
@@ -73,6 +74,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import app.ryzik.chat.ui.components.VerifiedMark
 import app.ryzik.chat.RyzikApp
 import app.ryzik.chat.ui.flux.GiftShopSheet
 import app.ryzik.chat.ui.flux.ProfileGifts
@@ -149,6 +151,7 @@ fun ProfileScreen(
                 online = user.online && !isMe,
                 isPremium = user.isPremium,
                 isAdmin = user.isAdmin,
+                verified = user.verified,
                 emojiStatus = user.emojiStatus,
                 style = user.profileStyle,
                 bannerUrl = repo.avatarUrl(user.profileStyle?.bannerFileId),
@@ -315,6 +318,15 @@ fun ProfileScreen(
                         }
                         Spacer(Modifier.height(8.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            VerifiedMark(24.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Галочка верификации", Modifier.weight(1f))
+                            Switch(checked = user.verified, onCheckedChange = { v ->
+                                scope.launch { runCatching { repo.setVerified(user.id, v) }.onFailure { error = it.userMessage() } }
+                            })
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Rounded.Star, null)
                             Spacer(Modifier.width(8.dp))
                             Text("Премиум", Modifier.weight(1f))
@@ -325,7 +337,7 @@ fun ProfileScreen(
                         if (user.id != me?.id) {
                             Spacer(Modifier.height(8.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Rounded.Verified, null)
+                                Icon(Icons.Rounded.Shield, null)
                                 Spacer(Modifier.width(8.dp))
                                 Text("Администратор", Modifier.weight(1f))
                                 Switch(checked = user.isAdmin, onCheckedChange = { v ->
@@ -454,7 +466,10 @@ fun ChatInfoScreen(
                         }
                     } else Avatar(repo.chatTitle(chat), repo.avatarUrl(chat.avatarFileId), 110.dp, saved = chat.type == "saved", service = chat.isService)
                     Spacer(Modifier.height(12.dp))
-                    Text(repo.chatTitle(chat), style = MaterialTheme.typography.headlineSmall)
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 24.dp)) {
+                        Text(repo.chatTitle(chat), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f, fill = false))
+                        if (chat.verified && chat.type != "direct") { Spacer(Modifier.width(6.dp)); VerifiedMark(24.dp) }
+                    }
                     if (chat.isService) {
                         Text("официальный чат RyzikChat", color = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.height(12.dp))
@@ -585,7 +600,7 @@ fun ChatInfoScreen(
                     val m = chat.members[i]
                     val u = users[m.user.id] ?: m.user
                     ListItem(
-                        headlineContent = { NameWithBadges(u.displayName, u.badges, u.isAdmin, MaterialTheme.typography.bodyLarge, isPremium = u.isPremium, emojiStatus = u.emojiStatus) },
+                        headlineContent = { NameWithBadges(u.displayName, u.badges, u.isAdmin, MaterialTheme.typography.bodyLarge, isPremium = u.isPremium, emojiStatus = u.emojiStatus, verified = u.verified) },
                         supportingContent = { Text(if (m.role == "owner") "владелец" else "админ") },
                         leadingContent = { Avatar(u.displayName, repo.avatarUrl(u.avatarFileId), 44.dp, online = u.online) },
                         trailingContent = {
@@ -624,7 +639,7 @@ fun ChatInfoScreen(
                     val m = chat.members[i]
                     val u = users[m.user.id] ?: m.user
                     ListItem(
-                        headlineContent = { NameWithBadges(u.displayName, u.badges, u.isAdmin, MaterialTheme.typography.bodyLarge, isPremium = u.isPremium, emojiStatus = u.emojiStatus) },
+                        headlineContent = { NameWithBadges(u.displayName, u.badges, u.isAdmin, MaterialTheme.typography.bodyLarge, isPremium = u.isPremium, emojiStatus = u.emojiStatus, verified = u.verified) },
                         supportingContent = { Text(if (m.role == "owner") "владелец" else formatLastSeen(u.online, u.lastSeen)) },
                         leadingContent = { Avatar(u.displayName, repo.avatarUrl(u.avatarFileId), 44.dp, online = u.online) },
                         trailingContent = {

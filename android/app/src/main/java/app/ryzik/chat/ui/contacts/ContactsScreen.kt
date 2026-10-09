@@ -169,7 +169,7 @@ private fun PersonRow(u: User, avatarUrl: String?, trailing: (@Composable () -> 
         headlineContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(u.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                BadgeIcons(u.badges, u.isAdmin, 16.dp, u.isPremium, u.emojiStatus)
+                BadgeIcons(u.badges, u.isAdmin, 16.dp, u.isPremium, u.emojiStatus, u.verified)
             }
         },
         supportingContent = {

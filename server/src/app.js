@@ -89,6 +89,8 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
       bio: row.bio,
       avatarFileId: row.avatar_file_id ?? null,
       isAdmin: !!row.is_admin,
+      // Галочка верификации (выдаёт администратор). У RyzikChat Info она есть всегда.
+      verified: !!row.verified || row.id === SYSTEM_ID,
       isPremium: hasPremium(row),
       // Оформление профиля и эмодзи-статус — возможности Премиума.
       emojiStatus: hasPremium(row) ? row.emoji_status ?? null : null,
@@ -193,6 +195,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
       username: chat.is_public ? chat.username ?? null : null,
       // Служебный чат RyzikChat Info: сюда приходят коды входа.
       isService: chat.created_by === SYSTEM_ID,
+      verified: !!chat.verified || chat.created_by === SYSTEM_ID,
       ...(chat.type === 'direct' ? directFlags(chat.id, userId) : {}),
       // Ссылку-приглашение видят владелец и админы, а в открытых — все участники.
       inviteCode: me && (chat.is_public || ['owner', 'admin'].includes(me.role)) ? chat.invite_code ?? null : null,
@@ -1610,6 +1613,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
       id: chat.id, type: chat.type, title: chat.title, description: chat.description ?? '',
       avatarFileId: chat.avatar_file_id ?? null, isPublic: !!chat.is_public,
       banned: !!chat.banned, banReason: chat.ban_reason ?? '',
+      verified: !!chat.verified, username: chat.username ?? null,
       memberCount: memberCountStmt.get(chat.id).n,
       owner: owner ? getUser(owner.user_id) : null,
       createdAt: chat.created_at,
@@ -1629,8 +1633,8 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     const q = String(req.query.q ?? '').trim();
     const like = `%${q.replace(/[%_\\]/g, (c) => '\\' + c)}%`;
     const rows = q
-      ? db.prepare(`SELECT * FROM chats WHERE type IN ('group', 'channel') AND created_by != ? AND (title LIKE ? ESCAPE '\\' OR id = ?) ORDER BY created_at DESC LIMIT 50`).all(SYSTEM_ID, like, q)
-      : db.prepare("SELECT * FROM chats WHERE type IN ('group', 'channel') AND banned = 1 ORDER BY created_at DESC LIMIT 200").all();
+      ? db.prepare(`SELECT * FROM chats WHERE type IN ('group', 'channel') AND created_by != ? AND (title LIKE ? ESCAPE '\\' OR id = ? OR lower(username) = lower(?)) ORDER BY created_at DESC LIMIT 50`).all(SYSTEM_ID, like, q, q.replace(/^@/, ''))
+      : db.prepare("SELECT * FROM chats WHERE type IN ('group', 'channel') AND (banned = 1 OR verified = 1) ORDER BY created_at DESC LIMIT 200").all();
     res.json(rows.map(adminChatView));
   });
 
@@ -1679,6 +1683,28 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
       iceServers.push({ urls: process.env.TURN_URL.split(','), username: process.env.TURN_USER ?? '', credential: process.env.TURN_PASS ?? '' });
     }
     res.json({ iceServers });
+  });
+
+  // Галочка верификации.
+  app.put('/api/admin/users/:id/verified', adminOnly, (req, res) => {
+    const row = getUserRow.get(req.params.id);
+    if (!row || row.id === SYSTEM_ID) throw new HttpError(404, 'user_not_found', 'Пользователь не найден');
+    const on = !!req.body?.verified;
+    db.prepare('UPDATE users SET verified = ? WHERE id = ?').run(on ? 1 : 0, row.id);
+    logModeration(req.userId, on ? 'verify' : 'unverify', 'user', row.id, row.username);
+    if (on) postInfo(row.id, 'Ваш аккаунт верифицирован ✅ Рядом с именем теперь видна галочка.');
+    const u = getUser(row.id);
+    hub.broadcastUser(u.id, { type: 'user.updated', user: u });
+    res.json(adminUserView(getUserRow.get(row.id)));
+  });
+
+  app.put('/api/admin/chats/:id/verified', adminOnly, (req, res) => {
+    const chat = moderatedChat(req.params.id);
+    const on = !!req.body?.verified;
+    db.prepare('UPDATE chats SET verified = ? WHERE id = ?').run(on ? 1 : 0, chat.id);
+    logModeration(req.userId, on ? 'verify' : 'unverify', chat.type, chat.id, chat.title);
+    broadcastChat(chat.id, { type: 'chat.updated', chatId: chat.id });
+    res.json(adminChatView(getChatRow.get(chat.id)));
   });
 
   app.put('/api/admin/users/:id/admin', adminOnly, (req, res) => {

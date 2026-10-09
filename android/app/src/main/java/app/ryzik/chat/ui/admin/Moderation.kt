@@ -66,6 +66,7 @@ import app.ryzik.chat.data.User
 import app.ryzik.chat.data.userMessage
 import app.ryzik.chat.ui.chats.SearchPill
 import app.ryzik.chat.ui.components.Avatar
+import app.ryzik.chat.ui.components.VerifiedMark
 import app.ryzik.chat.ui.components.formatListTime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -90,6 +91,20 @@ private fun StatusChip(text: String, color: Color) {
         color = Color.White,
         modifier = Modifier.clip(CircleShape).background(color).padding(horizontal = 8.dp, vertical = 3.dp),
     )
+}
+
+/** Выдать или снять галочку верификации. */
+@Composable
+private fun VerifyButton(verified: Boolean, onChange: (Boolean) -> Unit) {
+    if (verified) OutlinedButton(onClick = { onChange(false) }, shape = RoundedCornerShape(16.dp)) {
+        VerifiedMark(18.dp)
+        Spacer(Modifier.width(6.dp))
+        Text("Снять галочку")
+    } else FilledTonalButton(onClick = { onChange(true) }, shape = RoundedCornerShape(16.dp)) {
+        VerifiedMark(18.dp)
+        Spacer(Modifier.width(6.dp))
+        Text("Выдать галочку")
+    }
 }
 
 @Composable
@@ -141,7 +156,10 @@ fun UsersModeration(modifier: Modifier, onOpenProfile: (String) -> Unit) {
                     Avatar(u.displayName, repo.avatarUrl(u.avatarFileId), 44.dp)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(u.displayName, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(u.displayName, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                            if (u.verified) { Spacer(Modifier.width(4.dp)); VerifiedMark(16.dp) }
+                        }
                         Text("@${u.username}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     if (u.isAdmin) StatusChip("админ", MaterialTheme.colorScheme.primary)
@@ -164,6 +182,8 @@ fun UsersModeration(modifier: Modifier, onOpenProfile: (String) -> Unit) {
                     Spacer(Modifier.width(6.dp))
                     Text("Выдать или забрать FLUX")
                 }
+                Spacer(Modifier.height(6.dp))
+                VerifyButton(u.verified) { v -> run { api.setUserVerified(u.id, v) } }
                 if (!u.isAdmin) {
                     Spacer(Modifier.height(6.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -269,7 +289,7 @@ fun ChatsModeration(modifier: Modifier) {
         item {
             SearchPill(query, { query = it }, "Название группы или канала", Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp))
             Text(
-                if (query.isBlank()) "Заблокированные группы и каналы. Поиск находит и частные." else "Результаты поиска",
+                if (query.isBlank()) "Заблокированные и верифицированные группы и каналы. Поиск по названию или @юзернейму находит и частные." else "Результаты поиска",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
@@ -285,8 +305,10 @@ fun ChatsModeration(modifier: Modifier) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(if (c.type == "channel") Icons.Rounded.Campaign else Icons.Rounded.Group, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(4.dp))
-                            Text(c.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(c.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                            if (c.verified) { Spacer(Modifier.width(4.dp)); VerifiedMark(16.dp) }
                         }
+                        c.username?.let { Text("@$it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
                         Text(
                             (if (c.type == "channel") "Канал" else "Группа") + " · ${c.memberCount} уч. · " + (if (c.isPublic) "открытый" else "частный") +
                                 (c.owner?.let { " · владелец @${it.username}" } ?: ""),
@@ -301,6 +323,8 @@ fun ChatsModeration(modifier: Modifier) {
                     Text("Причина: ${c.banReason}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 }
                 Spacer(Modifier.height(10.dp))
+                VerifyButton(c.verified) { v -> run { api.setChatVerified(c.id, v) } }
+                Spacer(Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (c.banned) OutlinedButton(onClick = { run { api.unbanChat(c.id) } }) { Text("Разблокировать") }
                     else OutlinedButton(onClick = { action = c to "ban" }) { Text("Заблокировать") }
@@ -352,6 +376,8 @@ private fun actionText(e: ModerationLogEntry): String {
         "delete" -> "удалил $target"
         "flux_grant" -> "начислил FLUX: $target"
         "flux_take" -> "списал FLUX: $target"
+        "verify" -> "выдал галочку: $target"
+        "unverify" -> "снял галочку: $target"
         else -> "${e.action} $target"
     }
 }

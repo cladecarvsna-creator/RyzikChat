@@ -223,7 +223,7 @@ fun NewChatScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, addToChatId:
                         headlineContent = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(u.displayName)
-                                BadgeIcons(u.badges, u.isAdmin)
+                                BadgeIcons(u.badges, u.isAdmin, verified = u.verified)
                             }
                         },
                         supportingContent = { Text("@${u.username}") },

@@ -418,6 +418,10 @@ class ApiClient(
     suspend fun restrictUser(userId: String, days: Double, reason: String) =
         call("POST", "/api/admin/users/$userId/restrict", buildJsonObject { put("days", days); put("reason", reason) }, User.serializer())
     suspend fun unrestrictUser(userId: String) = call("DELETE", "/api/admin/users/$userId/restrict", null, User.serializer())
+    suspend fun setUserVerified(userId: String, verified: Boolean) =
+        call("PUT", "/api/admin/users/$userId/verified", buildJsonObject { put("verified", verified) }, User.serializer())
+    suspend fun setChatVerified(chatId: String, verified: Boolean) =
+        call("PUT", "/api/admin/chats/$chatId/verified", buildJsonObject { put("verified", verified) }, AdminChat.serializer())
     suspend fun adminChats(query: String) = call("GET", "/api/admin/chats?q=" + q(query), null, ListSerializer(AdminChat.serializer()))
     suspend fun banChat(chatId: String, reason: String) =
         call("POST", "/api/admin/chats/$chatId/ban", buildJsonObject { put("reason", reason) }, AdminChat.serializer())

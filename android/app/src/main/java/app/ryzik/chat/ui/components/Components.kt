@@ -1,5 +1,6 @@
 package app.ryzik.chat.ui.components
 
+import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.drawWithCache
@@ -140,15 +141,16 @@ fun parseColor(hex: String): Color = runCatching { Color(android.graphics.Color.
 
 /** Маленькие значки рядом с именем. Выдаёт их только администратор. */
 @Composable
-fun BadgeIcons(badges: List<Badge>, isAdmin: Boolean = false, size: Dp = 18.dp, isPremium: Boolean = false, emojiStatus: String? = null) {
-    if (badges.isEmpty() && !isAdmin && !isPremium) return
+fun BadgeIcons(badges: List<Badge>, isAdmin: Boolean = false, size: Dp = 18.dp, isPremium: Boolean = false, emojiStatus: String? = null, verified: Boolean = false) {
+    if (badges.isEmpty() && !isAdmin && !isPremium && !verified) return
     Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
         Spacer(Modifier.width(4.dp))
+        if (verified) VerifiedMark(size)
         if (isPremium) {
             // С Премиумом вместо звезды можно поставить свой эмодзи-статус.
             if (!emojiStatus.isNullOrBlank()) Text(emojiStatus, fontSize = (size.value * 0.9f).sp) else PremiumStar(size)
         }
-        if (isAdmin) Icon(Icons.Rounded.Verified, "Администратор", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(size))
+        if (isAdmin) Icon(Icons.Rounded.Shield, "Администратор", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(size))
         badges.take(3).forEach { b ->
             Box(
                 Modifier
@@ -188,11 +190,19 @@ fun BadgeChip(badge: Badge, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun NameWithBadges(name: String, badges: List<Badge>, isAdmin: Boolean, style: TextStyle, modifier: Modifier = Modifier, color: Color = Color.Unspecified, isPremium: Boolean = false, emojiStatus: String? = null) {
+fun NameWithBadges(name: String, badges: List<Badge>, isAdmin: Boolean, style: TextStyle, modifier: Modifier = Modifier, color: Color = Color.Unspecified, isPremium: Boolean = false, emojiStatus: String? = null, verified: Boolean = false) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         Text(name, style = style, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-        BadgeIcons(badges, isAdmin, size = (style.fontSize.value + 2).dp, isPremium = isPremium, emojiStatus = emojiStatus)
+        BadgeIcons(badges, isAdmin, size = (style.fontSize.value + 2).dp, isPremium = isPremium, emojiStatus = emojiStatus, verified = verified)
     }
+}
+
+/** Голубая галочка верификации. */
+val VerifiedBlue = Color(0xFF2F9BF5)
+
+@Composable
+fun VerifiedMark(size: Dp = 16.dp, modifier: Modifier = Modifier) {
+    Icon(Icons.Rounded.Verified, "Верифицирован", tint = VerifiedBlue, modifier = modifier.size(size))
 }
 
 /** Три прыгающие точки «печатает…». */

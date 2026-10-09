@@ -12,7 +12,7 @@ const STRING = [
 ];
 const STRING_LIST = ['memberIds', 'userIds'];
 const NUMBER = ['amount', 'price', 'supply', 'messagePrice', 'months', 'days', 'seq', 'versionCode'];
-const BOOL = ['isPublic', 'isAdmin', 'isPremium', 'hidden', 'active', 'muted', 'pinned', 'archived'];
+const BOOL = ['isPublic', 'isAdmin', 'isPremium', 'hidden', 'active', 'muted', 'pinned', 'archived', 'verified'];
 const OBJECT = ['profileStyle'];
 
 const RULES = new Map([
