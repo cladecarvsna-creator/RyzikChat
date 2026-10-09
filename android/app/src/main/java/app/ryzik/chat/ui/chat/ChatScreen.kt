@@ -471,7 +471,7 @@ fun ChatScreen(
                                 transitionSpec = { (slideInVertically { it } + fadeIn()) togetherWith (slideOutVertically { -it } + fadeOut()) },
                             ) { s ->
                                 if (s == "typing") Row(verticalAlignment = Alignment.CenterVertically) {
-                                    val who = if (chat?.type == "group") (users[typingHere.first()]?.displayName ?: "") + " " else ""
+                                    val who = if (chat?.type == "group") typingHere.firstOrNull()?.let { users[it]?.displayName }?.let { "$it " } ?: "" else ""
                                     Text("${who}печатает", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                                     Spacer(Modifier.width(4.dp))
                                     TypingDots(MaterialTheme.colorScheme.primary, 4.dp)

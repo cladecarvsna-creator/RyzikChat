@@ -98,7 +98,7 @@ object Notifier {
         val size = 128
         val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
-        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette[abs(name.hashCode()) % palette.size] }
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette[Math.floorMod(name.hashCode(), palette.size)] }
         c.drawCircle(size / 2f, size / 2f, size / 2f, p)
         val parts = name.trim().split(" ").filter { it.isNotBlank() }
         val text = when {

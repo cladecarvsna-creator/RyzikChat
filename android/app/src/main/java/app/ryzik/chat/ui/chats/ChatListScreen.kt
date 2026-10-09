@@ -492,7 +492,7 @@ private fun ChatRow(
                     AnimatedContent(typingNames.isNotEmpty(), label = "typing", transitionSpec = { fadeIn() togetherWith fadeOut() }) { isTyping ->
                         if (isTyping) Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                if (chat.type == "group") "${typingNames.first()} печатает" else "печатает",
+                                typingNames.firstOrNull()?.takeIf { chat.type == "group" }?.let { "$it печатает" } ?: "печатает",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = scheme.primary,
                             )

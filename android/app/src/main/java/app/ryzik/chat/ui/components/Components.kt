@@ -77,7 +77,7 @@ fun Avatar(
     shape: androidx.compose.ui.graphics.Shape = AvatarShape,
 ) {
     Box(modifier.size(size)) {
-        val base = if (service) MaterialTheme.colorScheme.primary else avatarPalette[abs(name.hashCode()) % avatarPalette.size]
+        val base = if (service) MaterialTheme.colorScheme.primary else avatarPalette[Math.floorMod(name.hashCode(), avatarPalette.size)]
         Box(
             Modifier
                 .size(size)

@@ -229,7 +229,7 @@ fun MessageBubble(
                 if (showName && sender != null && !mine) {
                     Text(
                         sender.displayName,
-                        color = nameColors[abs(sender.id.hashCode()) % nameColors.size],
+                        color = nameColors[Math.floorMod(sender.id.hashCode(), nameColors.size)],
                         style = MaterialTheme.typography.labelLarge,
                         modifier = Modifier.padding(start = if (isMedia) 8.dp else 12.dp, end = 12.dp, top = if (isMedia) 4.dp else 8.dp),
                     )
