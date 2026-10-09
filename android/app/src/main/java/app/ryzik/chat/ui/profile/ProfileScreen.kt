@@ -1,5 +1,8 @@
 package app.ryzik.chat.ui.profile
 
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Campaign
+import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.AlternateEmail
 import androidx.compose.material.icons.rounded.CardGiftcard
@@ -45,6 +48,8 @@ import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.PersonRemove
 import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.ui.draw.clip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -157,7 +162,16 @@ fun ProfileScreen(
                 bannerUrl = repo.avatarUrl(user.profileStyle?.bannerFileId),
                 avatarScale = pop.value,
             )
-            Text("@${user.username}", color = MaterialTheme.colorScheme.primary)
+            val clip = androidx.compose.ui.platform.LocalClipboardManager.current
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            Text(
+                "@${user.username}",
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable {
+                    clip.setText(androidx.compose.ui.text.AnnotatedString("@${user.username}"))
+                    android.widget.Toast.makeText(ctx, "Юзернейм скопирован", android.widget.Toast.LENGTH_SHORT).show()
+                }.padding(horizontal = 6.dp, vertical = 2.dp),
+            )
             if (!isMe && !user.isService) Text(
                 formatLastSeen(user.online, user.lastSeen),
                 style = MaterialTheme.typography.labelLarge,
@@ -424,6 +438,7 @@ fun ChatInfoScreen(
     var avatarBusy by remember { mutableStateOf(false) }
     var infoError by remember { mutableStateOf<String?>(null) }
     var editUsername by remember { mutableStateOf<String?>(null) }
+    var discussionDialog by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     val myId = repo.myId
@@ -578,6 +593,27 @@ fun ChatInfoScreen(
                     )
                 }
             }
+            if (chat.type == "channel" && chat.myRole == "owner") item {
+                val group = chat.discussionId?.let { id -> chats.firstOrNull { it.id == id } }
+                ListItem(
+                    headlineContent = { Text("Комментарии") },
+                    supportingContent = {
+                        Text(if (chat.discussionId == null) "Выключены. Привяжите группу, и в ней будут комментарии к постам" else "Обсуждение в группе «${group?.title ?: "группа"}»")
+                    },
+                    leadingContent = { Icon(Icons.Rounded.Forum, null) },
+                    modifier = Modifier.clickable { discussionDialog = true },
+                )
+            }
+            chat.linkedChannelId?.let { channelId ->
+                if (chat.type == "group") item {
+                    ListItem(
+                        headlineContent = { Text("Обсуждение канала") },
+                        supportingContent = { Text(chats.firstOrNull { it.id == channelId }?.title ?: "Сюда приходят комментарии к постам канала") },
+                        leadingContent = { Icon(Icons.Rounded.Campaign, null, tint = MaterialTheme.colorScheme.primary) },
+                        modifier = Modifier.clickable { if (chats.any { it.id == channelId }) onOpenChat(channelId) },
+                    )
+                }
+            }
             if (chat.type == "group" && chat.myRole == null && chat.isPublic) item {
                 ListItem(
                     headlineContent = { Text("Вступить в группу", color = MaterialTheme.colorScheme.primary) },
@@ -714,6 +750,56 @@ fun ChatInfoScreen(
                 }) { Text(if (value.isBlank()) "Убрать" else "Сохранить") }
             },
             dismissButton = { TextButton(onClick = { editUsername = null }) { Text("Отмена") } },
+        )
+    }
+
+    if (discussionDialog) {
+        val myGroups = chats.filter { it.type == "group" && (it.myRole == "owner" || it.myRole == "admin") }
+        var busy by remember { mutableStateOf(false) }
+        fun apply(block: suspend () -> Unit) {
+            busy = true
+            scope.launch {
+                runCatching { block() }.onSuccess { discussionDialog = false }.onFailure { infoError = it.userMessage() }
+                busy = false
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { discussionDialog = false },
+            icon = { Icon(Icons.Rounded.Forum, null) },
+            title = { Text("Комментарии к постам") },
+            text = {
+                LazyColumn {
+                    item {
+                        Text(
+                            "Комментарии хранятся в привязанной группе: участники видят их там, а подписчики — под каждым постом.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    item {
+                        ListItem(
+                            headlineContent = { Text("Создать новую группу", color = MaterialTheme.colorScheme.primary) },
+                            leadingContent = { Icon(Icons.Rounded.Add, null, tint = MaterialTheme.colorScheme.primary) },
+                            modifier = Modifier.clickable(enabled = !busy) { apply { repo.createDiscussion(chat) } },
+                        )
+                    }
+                    items(myGroups.size) { i ->
+                        val g = myGroups[i]
+                        ListItem(
+                            headlineContent = { Text(g.title) },
+                            supportingContent = { if (g.id == chat.discussionId) Text("Привязана сейчас", color = MaterialTheme.colorScheme.primary) },
+                            leadingContent = { Avatar(g.title, repo.avatarUrl(g.avatarFileId), 36.dp) },
+                            modifier = Modifier.clickable(enabled = !busy && g.id != chat.discussionId) { apply { repo.setDiscussion(chat.id, g.id) } },
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                if (chat.discussionId != null) TextButton(enabled = !busy, onClick = { apply { repo.setDiscussion(chat.id, null) } }) {
+                    Text("Выключить комментарии", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { discussionDialog = false }) { Text("Закрыть") } },
         )
     }
 }

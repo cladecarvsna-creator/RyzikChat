@@ -230,6 +230,17 @@ function migrate(db) {
   // Галочка верификации: выдаёт администратор людям, группам и каналам.
   if (!cols('users').includes('verified')) db.exec('ALTER TABLE users ADD COLUMN verified INTEGER NOT NULL DEFAULT 0');
   if (!cols('chats').includes('verified')) db.exec('ALTER TABLE chats ADD COLUMN verified INTEGER NOT NULL DEFAULT 0');
+  // Обсуждение канала: привязанная группа, где живут комментарии к постам.
+  if (!cols('chats').includes('discussion_id')) db.exec('ALTER TABLE chats ADD COLUMN discussion_id TEXT');
+  // Комментарий — сообщение в группе обсуждения, привязанное к посту канала.
+  if (!cols('messages').includes('comment_of')) db.exec('ALTER TABLE messages ADD COLUMN comment_of TEXT');
+  db.exec('CREATE INDEX IF NOT EXISTS messages_comment_of ON messages(comment_of)');
+  // Просмотры постов в каналах: кто видел пост.
+  db.exec(`CREATE TABLE IF NOT EXISTS post_views (
+    message_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    PRIMARY KEY (message_id, user_id)
+  )`);
   if (!cols('chats').includes('wallpaper_file_id')) db.exec('ALTER TABLE chats ADD COLUMN wallpaper_file_id TEXT');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS chats_invite_code ON chats(invite_code)');
   // Поиск повторной отправки сообщения по clientId.

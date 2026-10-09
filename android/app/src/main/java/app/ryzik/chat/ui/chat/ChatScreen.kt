@@ -182,6 +182,9 @@ fun ChatScreen(
     onBack: () -> Unit,
     onOpenInfo: () -> Unit,
     onOpenMedia: (String) -> Unit,
+    onOpenProfile: (String) -> Unit = {},
+    onOpenChat: (String) -> Unit = {},
+    onOpenComments: (String) -> Unit = {},
 ) {
     val app = RyzikApp.instance
     val repo = app.repo
@@ -374,6 +377,8 @@ fun ChatScreen(
                         val mine = m.senderId == myId
                         val firstInGroup = older == null || older.senderId != m.senderId || !isSameDay(older.createdAt, m.createdAt) || m.createdAt - older.createdAt > 5 * 60_000
                         val lastInGroup = newer == null || newer.senderId != m.senderId || !isSameDay(newer.createdAt, m.createdAt) || newer.createdAt - m.createdAt > 5 * 60_000
+                        // Пост канала попал на экран — засчитываем просмотр.
+                        if (chat?.type == "channel" && m.status == SendStatus.Sent && !m.deleted) LaunchedEffect(m.id) { repo.markViewed(chatId, m.id) }
                         Column(Modifier.animateItem()) {
                             if (older == null || !isSameDay(older.createdAt, m.createdAt)) DateChip(m.createdAt)
                             val replied = m.replyTo?.let { id -> messages.firstOrNull { it.id == id } }
@@ -403,6 +408,10 @@ fun ChatScreen(
                                     if (idx >= 0) scope.launch { listState.animateScrollToItem(idx) }
                                 },
                                 onRetry = { repo.retry(m) },
+                                avatar = if (chat?.type == "group") ({ SenderAvatar(users[m.senderId], m.senderId, onOpenProfile, onOpenChat) }) else null,
+                                footer = if (chat?.type == "channel" && chat.discussionId != null && !m.deleted && m.status == SendStatus.Sent) ({
+                                    CommentsButton(m.comments) { onOpenComments(m.id) }
+                                }) else null,
                             )
                         }
                     }

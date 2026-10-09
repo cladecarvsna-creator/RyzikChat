@@ -177,7 +177,19 @@ data class Message(
     val editedAt: Long? = null,
     val deleted: Boolean = false,
     val reactions: List<Reaction> = emptyList(),
+    /** Комментарий: id поста канала, к которому он написан. */
+    val commentOf: String? = null,
+    /** Пост канала: просмотры и число комментариев. */
+    val views: Int? = null,
+    val comments: Int = 0,
 )
+
+/** Пост канала с комментариями. */
+@Serializable
+data class CommentsPage(val post: Message, val groupId: String, val comments: List<Message> = emptyList(), val users: List<User> = emptyList())
+
+@Serializable
+data class ViewsResult(val views: Map<String, Int> = emptyMap())
 
 @Serializable
 data class ChatMember(val user: User, val role: String)
@@ -205,6 +217,9 @@ data class Chat(
     val isService: Boolean = false,
     /** Галочка верификации у группы или канала. */
     val verified: Boolean = false,
+    /** Канал: группа с комментариями к постам. Группа: канал, чьё это обсуждение. */
+    val discussionId: String? = null,
+    val linkedChannelId: String? = null,
     /** Личный чат: собеседник у меня в контактах / заблокирован мной. */
     val peerIsContact: Boolean = false,
     val peerBlocked: Boolean = false,
@@ -323,6 +338,8 @@ data class RealtimeEvent(
     val by: String? = null,
     val messageId: String? = null,
     val emoji: String? = null,
+    /** comment.new: сколько теперь комментариев у поста. */
+    val count: Int? = null,
 )
 
 /** Подпись звонка для списка чатов и уведомлений. */

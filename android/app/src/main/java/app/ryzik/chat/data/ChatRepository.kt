@@ -59,6 +59,9 @@ data class UiMessage(
     val deleted: Boolean,
     val reactions: List<Reaction>,
     val clientId: String?,
+    val commentOf: String? = null,
+    val views: Int? = null,
+    val comments: Int = 0,
     val status: SendStatus = SendStatus.Sent,
     val uploadProgress: Float? = null,
     val localFile: File? = null,
@@ -730,7 +733,60 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
             content = content, decryptFailed = !m.deleted && content == null,
             replyTo = m.replyTo, forwardedFrom = m.forwardedFrom, createdAt = m.createdAt, editedAt = m.editedAt,
             deleted = m.deleted, reactions = m.reactions, clientId = m.clientId,
+            commentOf = m.commentOf, views = m.views, comments = m.comments,
         )
+    }
+
+    // ================= Комментарии и просмотры =================
+
+    private val _commentEvents = MutableSharedFlow<RealtimeEvent>(extraBufferCapacity = 32)
+    /** Новые комментарии (для открытого экрана комментариев). */
+    val commentEvents: SharedFlow<RealtimeEvent> = _commentEvents
+
+    suspend fun loadComments(postId: String): Pair<UiMessage, List<UiMessage>> {
+        val page = api.comments(postId)
+        rememberUsers(page.users)
+        return decrypt(page.post) to page.comments.map { decrypt(it) }
+    }
+
+    fun decryptComment(m: Message): UiMessage = decrypt(m)
+
+    /** Комментарии открытые, как посты канала: их читают все, кто видит канал. */
+    suspend fun sendComment(postId: String, text: String, replyTo: String? = null): UiMessage {
+        val payload = AppJson.encodeToString(JsonObject.serializer(), buildJsonObject {
+            put("v", 0)
+            put("plain", AppJson.encodeToJsonElement(Content.serializer(), Content(text = text.trim())))
+        })
+        return decrypt(api.sendComment(postId, "text", payload, replyTo, java.util.UUID.randomUUID().toString()))
+    }
+
+    suspend fun setDiscussion(channelId: String, groupId: String?) = api.setDiscussion(channelId, groupId).also { upsertChat(it) }
+
+    /** Создаёт группу «<канал> — обсуждение» и привязывает её к каналу. */
+    suspend fun createDiscussion(channel: Chat): Chat {
+        val group = createGroup("${channel.title} — обсуждение".take(128), emptyList(), isPublic = channel.isPublic)
+        return setDiscussion(channel.id, group.id)
+    }
+
+    private val viewed = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
+    private val pendingViews = ConcurrentHashMap<String, MutableSet<String>>()
+    private var viewsJob: kotlinx.coroutines.Job? = null
+
+    /** Пост канала показан на экране: копим и раз в пару секунд отправляем на сервер. */
+    fun markViewed(chatId: String, messageId: String) {
+        if (!viewed.add(messageId)) return
+        pendingViews.getOrPut(chatId) { java.util.Collections.newSetFromMap(ConcurrentHashMap()) }.add(messageId)
+        if (viewsJob?.isActive == true) return
+        viewsJob = scope.launch {
+            delay(1500)
+            for (id in pendingViews.keys.toList()) {
+                val ids = pendingViews.remove(id)?.toList().orEmpty()
+                if (ids.isEmpty()) continue
+                runCatching { api.markViews(id, ids) }
+                    .onSuccess { r -> messageFlows[id]?.update { list -> list.map { m -> r.views[m.id]?.let { v -> m.copy(views = v) } ?: m } } }
+                    .onFailure { viewed.removeAll(ids.toSet()) }
+            }
+        }
     }
 
     fun previewOf(m: Message?): String {
@@ -1135,8 +1191,16 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
 
     private suspend fun handle(ev: RealtimeEvent) {
         when (ev.type) {
+            "comment.new" -> {
+                ev.user?.let { rememberUsers(listOf(it)) }
+                val chatId = ev.chatId ?: return
+                val postId = ev.messageId ?: return
+                messageFlows[chatId]?.update { list -> list.map { if (it.id == postId) it.copy(comments = ev.count ?: it.comments) else it } }
+                _commentEvents.tryEmit(ev)
+            }
             "message.new" -> {
                 val m = ev.message ?: return
+                if (_users.value[m.senderId] == null) scope.launch { runCatching { loadUser(m.senderId) } }
                 val ui = decrypt(m)
                 merge(m.chatId, listOf(ui))
                 bumpChat(m)

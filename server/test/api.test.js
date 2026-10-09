@@ -121,7 +121,7 @@ test('регистрация, чаты, сообщения, бейджи, websoc
 });
 
 test('каналы, премиум, сигналы звонков, документация API', async () => {
-  const owner = await reg('chanowner');
+  const owner = await reg('postowner');
   const fan = await reg('chanfan');
   const ch = await api('POST', '/api/chats/channel', { title: 'Новости Рыжика', description: 'Всё самое важное' }, owner.body.token);
   assert.equal(ch.status, 201);
@@ -581,4 +581,40 @@ test('галочка верификации: админ выдаёт людям 
   assert.ok((await api('GET', '/api/admin/chats', null, admin)).body.some((c) => c.id === ch.id), 'верифицированные видны в списке');
   await api('PUT', `/api/admin/users/${u.body.user.id}/verified`, { verified: false }, admin);
   assert.equal((await api('GET', `/api/users/${u.body.user.id}`, null, u.body.token)).body.verified, false);
+});
+
+test('канал: просмотры, привязанная группа и комментарии', async () => {
+  const owner = await reg('chowner7');
+  const reader = await reg('chreader7');
+  const t = owner.body.token, r = reader.body.token;
+  const ch = (await api('POST', '/api/chats/channel', { title: 'Канал', username: 'commentschan', isPublic: true }, t)).body;
+  const grp = (await api('POST', '/api/chats/group', { title: 'Обсуждение канала', memberIds: [] }, t)).body;
+  const plain = (text) => JSON.stringify({ v: 0, plain: { text } });
+  const post = (await api('POST', `/api/chats/${ch.id}/messages`, { type: 'text', payload: plain('пост') }, t)).body;
+  assert.equal(post.views, 0);
+  assert.equal((await api('GET', `/api/messages/${post.id}/comments`, null, r)).body.error, 'no_discussion');
+  assert.equal((await api('PUT', `/api/chats/${ch.id}/discussion`, { groupId: grp.id }, r)).status, 404, 'не участник канала');
+  const linked = await api('PUT', `/api/chats/${ch.id}/discussion`, { groupId: grp.id }, t);
+  assert.equal(linked.body.discussionId, grp.id);
+  assert.equal((await api('GET', `/api/chats/${grp.id}`, null, t)).body.linkedChannelId, ch.id);
+
+  // Просмотры: читатель открыл канал.
+  await api('POST', `/api/chats/${ch.id}/subscribe`, null, r);
+  const v = await api('POST', `/api/chats/${ch.id}/views`, { ids: [post.id, 'nope'] }, r);
+  assert.deepEqual(v.body.views, { [post.id]: 1 });
+  await api('POST', `/api/chats/${ch.id}/views`, { ids: [post.id] }, r);
+  assert.equal((await api('GET', `/api/chats/${ch.id}/messages`, null, t)).body[0].views, 1, 'повторный просмотр не считается');
+
+  // Комментарий пишет подписчик, который не состоит в группе.
+  assert.equal((await api('POST', `/api/messages/${post.id}/comments`, { type: 'text', payload: 'шифр' }, r)).status, 400);
+  const c = await api('POST', `/api/messages/${post.id}/comments`, { type: 'text', payload: plain('класс'), clientId: 'k1' }, r);
+  assert.equal(c.status, 201);
+  assert.equal(c.body.chatId, grp.id);
+  assert.equal(c.body.commentOf, post.id);
+  const list = (await api('GET', `/api/messages/${post.id}/comments`, null, r)).body;
+  assert.equal(list.comments.length, 1);
+  assert.equal(list.users[0].username, 'chreader7');
+  assert.equal((await api('GET', `/api/chats/${ch.id}/messages`, null, r)).body[0].comments, 1);
+  // В самой группе комментарий тоже виден.
+  assert.equal((await api('GET', `/api/chats/${grp.id}/messages`, null, t)).body.at(-1).commentOf, post.id);
 });

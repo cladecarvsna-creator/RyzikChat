@@ -8,9 +8,9 @@ const STRING = [
   'accountPassword', 'currentPassword', 'hint', 'oldPassword', 'newPassword', 'bio', 'avatarFileId',
   'emojiStatus', 'title', 'description', 'payload', 'replyTo', 'forwardedFrom', 'clientId', 'type',
   'emoji', 'color', 'reason', 'role', 'fileId', 'toUserId', 'userId', 'itemId', 'giftId', 'note',
-  'notes', 'caption', 'animation', 'mime', 'callPrivacy', 'versionName', 'message', 'code',
+  'notes', 'caption', 'animation', 'mime', 'callPrivacy', 'versionName', 'message', 'code', 'groupId',
 ];
-const STRING_LIST = ['memberIds', 'userIds'];
+const STRING_LIST = ['memberIds', 'userIds', 'ids'];
 const NUMBER = ['amount', 'price', 'supply', 'messagePrice', 'months', 'days', 'seq', 'versionCode'];
 const BOOL = ['isPublic', 'isAdmin', 'isPremium', 'hidden', 'active', 'muted', 'pinned', 'archived', 'verified'];
 const OBJECT = ['profileStyle'];

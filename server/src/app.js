@@ -143,6 +143,9 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
   }
 
   const reactionsStmt = db.prepare('SELECT user_id, emoji FROM reactions WHERE message_id = ?');
+  const chatTypeStmt = db.prepare('SELECT type, discussion_id FROM chats WHERE id = ?');
+  const viewsStmt = db.prepare('SELECT COUNT(*) AS n FROM post_views WHERE message_id = ?');
+  const commentCountStmt = db.prepare('SELECT COUNT(*) AS n FROM messages WHERE comment_of = ? AND deleted = 0');
 
   function publicMessage(row) {
     return {
@@ -159,6 +162,18 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
       editedAt: row.edited_at ?? null,
       deleted: !!row.deleted,
       reactions: row.deleted ? [] : reactionsStmt.all(row.id).map((r) => ({ userId: r.user_id, emoji: r.emoji })),
+      commentOf: row.comment_of ?? null,
+      ...postStats(row),
+    };
+  }
+
+  /** У постов канала — просмотры и, если есть обсуждение, число комментариев. */
+  function postStats(row) {
+    const c = chatTypeStmt.get(row.chat_id);
+    if (c?.type !== 'channel') return {};
+    return {
+      views: viewsStmt.get(row.id).n,
+      comments: c.discussion_id ? commentCountStmt.get(row.id).n : 0,
     };
   }
 
@@ -169,6 +184,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
   const getChatRow = db.prepare('SELECT * FROM chats WHERE id = ?');
 
   const memberCountStmt = db.prepare('SELECT COUNT(*) AS n FROM chat_members WHERE chat_id = ?');
+  const linkedChannelStmt = db.prepare("SELECT id FROM chats WHERE type = 'channel' AND discussion_id = ? LIMIT 1");
 
   /** Представление чата для пользователя. preview=true — для каналов, на которые он ещё не подписан. */
   function chatView(chatId, userId, { preview = false } = {}) {
@@ -196,6 +212,9 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
       // Служебный чат RyzikChat Info: сюда приходят коды входа.
       isService: chat.created_by === SYSTEM_ID,
       verified: !!chat.verified || chat.created_by === SYSTEM_ID,
+      // Канал: группа с комментариями. Группа: канал, к которому она привязана.
+      discussionId: chat.type === 'channel' ? chat.discussion_id ?? null : null,
+      linkedChannelId: chat.type === 'group' ? linkedChannelStmt.get(chat.id)?.id ?? null : null,
       ...(chat.type === 'direct' ? directFlags(chat.id, userId) : {}),
       // Ссылку-приглашение видят владелец и админы, а в открытых — все участники.
       inviteCode: me && (chat.is_public || ['owner', 'admin'].includes(me.role)) ? chat.invite_code ?? null : null,
@@ -942,6 +961,101 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     res.json(chatView(chat.id, req.userId));
   });
 
+  // ---------- обсуждение канала и комментарии ----------
+
+  /** Привязать к каналу группу для комментариев (или отвязать: groupId = null). Только владелец канала. */
+  app.put('/api/chats/:id/discussion', (req, res) => {
+    const m = requireMember(req.params.id, req.userId);
+    const chat = getChatRow.get(req.params.id);
+    if (chat.type !== 'channel' || m.role !== 'owner') throw new HttpError(403, 'forbidden', 'Обсуждение настраивает владелец канала');
+    const groupId = req.body?.groupId ? String(req.body.groupId) : null;
+    const old = chat.discussion_id;
+    if (groupId) {
+      const g = getChatRow.get(groupId);
+      const gm = g && membershipStmt.get(groupId, req.userId);
+      if (!g || g.type !== 'group' || !gm) throw new HttpError(404, 'chat_not_found', 'Группа не найдена');
+      if (!['owner', 'admin'].includes(gm.role)) throw new HttpError(403, 'forbidden', 'Привязать можно только группу, где вы владелец или админ');
+      const busy = linkedChannelStmt.get(groupId);
+      if (busy && busy.id !== chat.id) throw new HttpError(409, 'discussion_taken', 'Эта группа уже привязана к другому каналу');
+    }
+    db.prepare('UPDATE chats SET discussion_id = ? WHERE id = ?').run(groupId, chat.id);
+    broadcastChat(chat.id, { type: 'chat.updated', chatId: chat.id });
+    for (const id of new Set([old, groupId].filter(Boolean))) broadcastChat(id, { type: 'chat.updated', chatId: id });
+    res.json(chatView(chat.id, req.userId));
+  });
+
+  /** Пост канала, который может видеть пользователь, и группа его обсуждения. */
+  function commentablePost(messageId, userId) {
+    const post = db.prepare('SELECT * FROM messages WHERE id = ?').get(String(messageId));
+    const channel = post && getChatRow.get(post.chat_id);
+    if (!post || post.deleted || channel?.type !== 'channel' || (!channel.is_public && !membershipStmt.get(channel.id, userId))) {
+      throw new HttpError(404, 'message_not_found', 'Пост не найден');
+    }
+    const group = channel.discussion_id && getChatRow.get(channel.discussion_id);
+    if (!group) throw new HttpError(400, 'no_discussion', 'У этого канала нет комментариев');
+    return { post, channel, group };
+  }
+
+  app.get('/api/messages/:id/comments', (req, res) => {
+    const { post, group } = commentablePost(req.params.id, req.userId);
+    const before = req.query.before ? Number(req.query.before) : Number.MAX_SAFE_INTEGER;
+    const limit = Math.min(Number(req.query.limit ?? 100) || 100, 200);
+    const rows = db.prepare('SELECT * FROM messages WHERE comment_of = ? AND seq < ? ORDER BY seq DESC LIMIT ?').all(post.id, before, limit).reverse();
+    const users = [...new Set(rows.map((r) => r.sender_id))].map(getUser).filter(Boolean);
+    res.json({ post: publicMessage(post), groupId: group.id, comments: rows.map(publicMessage), users });
+  });
+
+  /** Комментарий: открытое (незашифрованное) сообщение в группе обсуждения. Писать может любой, кто видит канал. */
+  app.post('/api/messages/:id/comments', (req, res) => {
+    requireNotRestricted(req.userId);
+    const { post, channel, group } = commentablePost(req.params.id, req.userId);
+    requireChatNotBanned(group);
+    const { type = 'text', payload, replyTo, clientId } = req.body ?? {};
+    if (!MESSAGE_TYPES.has(type) || type === 'call') throw new HttpError(400, 'bad_type', 'Неизвестный тип сообщения');
+    let plain = null;
+    try { plain = JSON.parse(payload); } catch { /* ниже ошибка */ }
+    if (typeof payload !== 'string' || payload.length > MAX_PAYLOAD || plain?.v !== 0) {
+      throw new HttpError(400, 'bad_payload', 'Комментарий должен быть открытым сообщением');
+    }
+    if (clientId) {
+      const dup = db.prepare('SELECT * FROM messages WHERE chat_id = ? AND sender_id = ? AND client_id = ?').get(group.id, req.userId, clientId);
+      if (dup) return res.json(publicMessage(dup));
+    }
+    const msg = tx(db, () => {
+      const g = getChatRow.get(group.id);
+      const seq = g.last_seq + 1;
+      const id = newId();
+      db.prepare('UPDATE chats SET last_seq = ? WHERE id = ?').run(seq, g.id);
+      db.prepare(`INSERT INTO messages (id, chat_id, seq, sender_id, type, payload, reply_to, client_id, comment_of, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, g.id, seq, req.userId, type, payload, replyTo ?? null, clientId ?? null, post.id, now());
+      return publicMessage(db.prepare('SELECT * FROM messages WHERE id = ?').get(id));
+    });
+    broadcastChat(group.id, { type: 'message.new', message: msg });
+    const count = commentCountStmt.get(post.id).n;
+    // Подписчикам канала — новое число комментариев и сам комментарий (для открытого экрана комментариев).
+    const sender = getUser(req.userId);
+    hub.sendToUsers([...memberIds(channel.id), req.userId], { type: 'comment.new', chatId: channel.id, messageId: post.id, count, message: msg, user: sender });
+    res.status(201).json(msg);
+  });
+
+  /** Отметить посты канала просмотренными. Отвечает свежими числами просмотров. */
+  app.post('/api/chats/:id/views', (req, res) => {
+    const chat = getChatRow.get(req.params.id);
+    if (chat?.type !== 'channel' || (!chat.is_public && !membershipStmt.get(chat.id, req.userId))) throw new HttpError(404, 'chat_not_found', 'Канал не найден');
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter((x) => typeof x === 'string').slice(0, 200) : [];
+    const inChat = db.prepare('SELECT 1 FROM messages WHERE id = ? AND chat_id = ?');
+    const add = db.prepare('INSERT OR IGNORE INTO post_views (message_id, user_id) VALUES (?, ?)');
+    const views = {};
+    tx(db, () => {
+      for (const id of ids) {
+        if (!inChat.get(id, chat.id)) continue;
+        add.run(id, req.userId);
+        views[id] = viewsStmt.get(id).n;
+      }
+    });
+    res.json({ views });
+  });
+
   // Обои чата: в личном чате ставит любой участник, в группе и канале — владелец или админ.
   app.put('/api/chats/:id/wallpaper', (req, res) => {
     const m = requireMember(req.params.id, req.userId);
@@ -1659,6 +1773,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     const chat = moderatedChat(req.params.id);
     const members = memberIds(chat.id);
     const reason = String(req.body?.reason ?? '').trim().slice(0, 300);
+    db.prepare('UPDATE chats SET discussion_id = NULL WHERE discussion_id = ?').run(chat.id);
     db.prepare('DELETE FROM chats WHERE id = ?').run(chat.id);
     logModeration(req.userId, 'delete', chat.type, chat.id, chat.title, reason);
     hub.sendToUsers(members, { type: 'chat.removed', chatId: chat.id });

@@ -1,5 +1,6 @@
 package app.ryzik.chat.ui.chat
 
+import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.CallMade
 import androidx.compose.material.icons.rounded.CallReceived
 import androidx.compose.material.icons.rounded.PhoneMissed
@@ -121,6 +122,10 @@ fun MessageBubble(
     onReactionClick: (String) -> Unit,
     onReplyClick: (String) -> Unit,
     onRetry: () -> Unit,
+    /** Аватарка отправителя слева (в группах); рисуется у последнего сообщения подряд. */
+    avatar: (@Composable () -> Unit)? = null,
+    /** Под пузырём: например, кнопка комментариев у поста канала. */
+    footer: (@Composable () -> Unit)? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
     val haptic = LocalHapticFeedback.current
@@ -197,12 +202,20 @@ fun MessageBubble(
             ) { Icon(Icons.AutoMirrored.Rounded.Reply, null, Modifier.size(18.dp), tint = scheme.onSecondaryContainer) }
         }
 
-        Column(
+        val withAvatar = avatar != null && !mine
+        Row(
             Modifier
                 .align(if (mine) Alignment.CenterEnd else Alignment.CenterStart)
                 .offset { IntOffset(drag.value.roundToInt(), 0) }
-                .padding(horizontal = 8.dp)
-                .widthIn(max = maxWidth),
+                .padding(horizontal = if (withAvatar) 6.dp else 8.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+        if (withAvatar) {
+            Box(Modifier.padding(bottom = if (footer != null) 40.dp else 2.dp).size(34.dp)) { if (lastInGroup) avatar!!() }
+            Spacer(Modifier.width(6.dp))
+        }
+        Column(
+            Modifier.widthIn(max = if (withAvatar) maxWidth - 40.dp else maxWidth),
             horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
         ) {
             val bubbleModifier = Modifier
@@ -280,7 +293,7 @@ fun MessageBubble(
                 } else if (text.isNotEmpty() && !msg.deleted) {
                     Box(Modifier.padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 6.dp)) {
                         Text(
-                            text + "    " + (if (msg.editedAt != null) "   " else ""),
+                            text + "    " + (if (msg.editedAt != null) "   " else "") + (if (msg.views != null) "     " else ""),
                             color = onBubble,
                             fontSize = style.textSize.sp,
                             lineHeight = (style.textSize * 1.35f).sp,
@@ -324,6 +337,8 @@ fun MessageBubble(
                     }
                 }
             }
+            footer?.invoke()
+        }
         }
     }
 }
@@ -373,14 +388,25 @@ fun ReplyQuote(name: String, text: String, accent: Color, modifier: Modifier = M
     }
 }
 
+/** 1234 → «1,2K», 2 500 000 → «2,5M». */
+fun compactCount(n: Int): String = when {
+    n >= 1_000_000 -> String.format(java.util.Locale.US, "%.1fM", n / 1_000_000f).replace(".0M", "M").replace('.', ',')
+    n >= 1_000 -> String.format(java.util.Locale.US, "%.1fK", n / 1_000f).replace(".0K", "K").replace('.', ',')
+    else -> n.toString()
+}
+
 @Composable
 private fun MetaRow(msg: UiMessage, mine: Boolean, read: Boolean, color: Color, modifier: Modifier) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         if (msg.editedAt != null) {
             Text("изм. ", style = MaterialTheme.typography.labelSmall, color = color)
         }
+        msg.views?.let { v ->
+            Icon(Icons.Rounded.Visibility, "Просмотры", Modifier.size(13.dp), tint = color)
+            Text(" ${compactCount(v)}  ", style = MaterialTheme.typography.labelSmall, color = color)
+        }
         Text(formatTime(msg.createdAt), style = MaterialTheme.typography.labelSmall, color = color)
-        if (mine) {
+        if (mine && msg.views == null) {
             Spacer(Modifier.width(3.dp))
             val icon = when (msg.status) {
                 SendStatus.Sending -> Icons.Rounded.Schedule

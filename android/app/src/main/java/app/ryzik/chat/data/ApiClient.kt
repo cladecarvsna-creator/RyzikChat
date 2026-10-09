@@ -311,6 +311,22 @@ class ApiClient(
             forwardedFrom?.let { put("forwardedFrom", JsonPrimitive(it)) }
         }), Message.serializer())
 
+    suspend fun setDiscussion(channelId: String, groupId: String?) =
+        call("PUT", "/api/chats/$channelId/discussion", JsonObject(buildMap { put("groupId", groupId?.let { JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull) }), Chat.serializer())
+
+    suspend fun comments(postId: String) = call("GET", "/api/messages/$postId/comments", null, CommentsPage.serializer())
+
+    suspend fun sendComment(postId: String, type: String, payload: String, replyTo: String?, clientId: String) =
+        call("POST", "/api/messages/$postId/comments", JsonObject(buildMap {
+            put("type", JsonPrimitive(type))
+            put("payload", JsonPrimitive(payload))
+            put("clientId", JsonPrimitive(clientId))
+            replyTo?.let { put("replyTo", JsonPrimitive(it)) }
+        }), Message.serializer())
+
+    suspend fun markViews(chatId: String, ids: List<String>) =
+        call("POST", "/api/chats/$chatId/views", buildJsonObject { put("ids", kotlinx.serialization.json.JsonArray(ids.map { JsonPrimitive(it) })) }, ViewsResult.serializer())
+
     suspend fun editMessage(id: String, payload: String) =
         call("PATCH", "/api/messages/$id", buildJsonObject { put("payload", payload) }, Message.serializer())
 

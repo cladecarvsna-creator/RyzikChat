@@ -57,6 +57,7 @@ import app.ryzik.chat.ui.admin.AdminScreen
 import app.ryzik.chat.ui.auth.AuthScreen
 import app.ryzik.chat.ui.auth.TermsScreen
 import app.ryzik.chat.ui.chat.ChatScreen
+import app.ryzik.chat.ui.chat.CommentsScreen
 import app.ryzik.chat.ui.chat.MediaViewer
 import app.ryzik.chat.ui.chats.ChatListScreen
 import app.ryzik.chat.ui.contacts.ContactsScreen
@@ -284,6 +285,18 @@ private fun MainNav(pendingChat: String?, onPendingHandled: () -> Unit) {
                 onBack = { nav.popBackStack() },
                 onOpenInfo = { nav.go("chatinfo/$id") },
                 onOpenMedia = { msgId -> nav.go("viewer/$id/$msgId") },
+                onOpenProfile = { nav.go("profile/$it") },
+                onOpenChat = { nav.go("chat/$it") },
+                onOpenComments = { msgId -> nav.go("comments/$msgId") },
+            )
+        }
+        composable("comments/{id}") { e ->
+            val id = e.arguments?.getString("id") ?: return@composable
+            CommentsScreen(
+                postId = id,
+                onBack = { nav.popBackStack() },
+                onOpenProfile = { nav.go("profile/$it") },
+                onOpenChat = { nav.go("chat/$it") },
             )
         }
         composable(
