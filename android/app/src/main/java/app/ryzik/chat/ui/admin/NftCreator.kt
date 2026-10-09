@@ -1,5 +1,10 @@
 package app.ryzik.chat.ui.admin
 
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.ui.graphics.graphicsLayer
+import app.ryzik.chat.ui.flux.GiftAnimations
+import androidx.compose.material3.FilterChip
+import androidx.compose.foundation.layout.FlowRow
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -63,6 +68,7 @@ import kotlinx.coroutines.launch
  * Каждый купленный экземпляр получает свой номер, его можно дарить дальше.
  */
 @Composable
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 fun NftCreator(modifier: Modifier) {
     val repo = RyzikApp.instance.repo
     val scope = rememberCoroutineScope()
@@ -76,6 +82,8 @@ fun NftCreator(modifier: Modifier) {
     var description by remember { mutableStateOf("") }
     var price by remember { mutableStateOf("") }
     var supply by remember { mutableStateOf("") }
+    var caption by remember { mutableStateOf("") }
+    var animation by remember { mutableStateOf("bounce") }
     var busy by remember { mutableStateOf(false) }
     var done by remember { mutableStateOf<String?>(null) }
 
@@ -99,7 +107,7 @@ fun NftCreator(modifier: Modifier) {
                         Text("NFT Создатель", style = MaterialTheme.typography.titleMedium)
                     }
                     Text(
-                        "Загрузите картинку, задайте название и цену в FLUX. Подарок появится на витрине: его можно купить себе или подарить. Тираж ограничивает число экземпляров, у каждого свой номер.",
+                        "Загрузите картинку, добавьте надпись вроде «Доброе утро», выберите анимацию и цену в FLUX. Подарок появится на витрине в разделе NFT. Тираж ограничивает число экземпляров, у каждого свой номер.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -110,13 +118,20 @@ fun NftCreator(modifier: Modifier) {
                             .clickable { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                         contentAlignment = Alignment.Center,
                     ) {
-                        if (image != null) AsyncImage(image, null, Modifier.fillMaxSize().padding(8.dp))
+                        if (image != null) AnimatedPreview(animation, caption) { AsyncImage(image, null, Modifier.fillMaxSize().padding(14.dp)) }
                         else Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(Icons.Rounded.AddPhotoAlternate, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("Картинка", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     OutlinedTextField(title, { title = it.take(40) }, label = { Text("Название") }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(caption, { caption = it.take(40) }, label = { Text("Надпись на подарке, например «Доброе утро»") }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
+                    Text("Анимация", style = MaterialTheme.typography.labelLarge)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        GiftAnimations.forEach { (key, label) ->
+                            FilterChip(selected = animation == key, onClick = { animation = key }, label = { Text(label) }, shape = RoundedCornerShape(14.dp))
+                        }
+                    }
                     OutlinedTextField(description, { description = it.take(200) }, label = { Text("Описание (необязательно)") }, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(
@@ -144,10 +159,10 @@ fun NftCreator(modifier: Modifier) {
                             scope.launch {
                                 runCatching {
                                     val fileId = repo.uploadGiftImage(uri)
-                                    repo.api.createGiftItem(title.trim(), description.trim(), fileId, price.toLong(), supply.toIntOrNull()?.takeIf { it > 0 })
+                                    repo.api.createGiftItem(title.trim(), description.trim(), fileId, price.toLong(), supply.toIntOrNull()?.takeIf { it > 0 }, caption.trim(), animation)
                                 }.onSuccess {
                                     done = "«${it.title}» на витрине"
-                                    image = null; title = ""; description = ""; price = ""; supply = ""
+                                    image = null; title = ""; description = ""; price = ""; supply = ""; caption = ""
                                     reload++
                                 }.onFailure { error = it.userMessage() }
                                 busy = false
@@ -161,7 +176,7 @@ fun NftCreator(modifier: Modifier) {
             }
         }
         if (items.isNotEmpty()) item {
-            Text("Все подарки", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+            Text("Все подарки: эмодзи и NFT", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
         }
         items(items, key = { it.id }) { g ->
             Surface(
@@ -170,10 +185,13 @@ fun NftCreator(modifier: Modifier) {
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
             ) {
                 Row(Modifier.clickable { editing = g }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    GiftImage(g.fileId, Modifier.size(56.dp))
+                    GiftImage(g, Modifier.size(56.dp))
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(g.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            (if (g.kind == "emoji") "Эмодзи · " else "NFT · ") + g.title,
+                            style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
                         FluxAmount(g.price, iconSize = 14.dp)
                         Text(
                             "Продано ${g.sold}" + (g.supply?.let { " из $it" } ?: ""),
@@ -201,7 +219,7 @@ fun NftCreator(modifier: Modifier) {
             title = { Text(g.title) },
             text = {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    GiftImage(g.fileId, Modifier.size(120.dp))
+                    GiftImage(g, Modifier.size(120.dp))
                     OutlinedTextField(
                         newPrice, { v -> newPrice = v.filter { it.isDigit() }.take(9) },
                         label = { Text("Цена, FLUX") }, singleLine = true, shape = RoundedCornerShape(16.dp),
@@ -227,6 +245,51 @@ fun NftCreator(modifier: Modifier) {
                 }) { Text("Сохранить") }
             },
             dismissButton = { TextButton(onClick = { editing = null }) { Text("Отмена") } },
+        )
+    }
+}
+
+/** Превью анимации для ещё не загруженной картинки: те же движения, что у готового подарка. */
+@Composable
+private fun AnimatedPreview(animation: String, caption: String, content: @Composable () -> Unit) {
+    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "preview")
+    val wave by t.animateFloat(
+        0f, 1f,
+        androidx.compose.animation.core.infiniteRepeatable(
+            androidx.compose.animation.core.tween(1400, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+            androidx.compose.animation.core.RepeatMode.Reverse,
+        ),
+        label = "wave",
+    )
+    val loop by t.animateFloat(
+        0f, 1f,
+        androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(2600, easing = androidx.compose.animation.core.LinearEasing)),
+        label = "loop",
+    )
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier.fillMaxSize().graphicsLayer {
+                when (animation) {
+                    "bounce" -> translationY = -wave * size.height * 0.08f
+                    "pulse" -> { scaleX = 0.9f + 0.12f * wave; scaleY = 0.9f + 0.12f * wave }
+                    "sway" -> rotationZ = -10f + 20f * wave
+                    "shake" -> rotationZ = kotlin.math.sin(loop * 2 * Math.PI * 6).toFloat() * 6f * (if (loop < 0.35f) 1f else 0f)
+                    "spin" -> rotationY = loop * 360f
+                    "float" -> { translationY = -wave * size.height * 0.1f; rotationZ = -4f + 8f * wave }
+                    "shine" -> { scaleX = 0.97f + 0.05f * wave; scaleY = 0.97f + 0.05f * wave }
+                }
+            },
+            contentAlignment = Alignment.Center,
+        ) { content() }
+        if (caption.isNotBlank()) Text(
+            caption,
+            color = androidx.compose.ui.graphics.Color.White,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp)
+                .clip(RoundedCornerShape(50))
+                .background(androidx.compose.ui.graphics.Brush.linearGradient(app.ryzik.chat.ui.flux.FluxGradient))
+                .padding(horizontal = 10.dp, vertical = 3.dp),
         )
     }
 }

@@ -440,9 +440,14 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
 
     suspend fun buyPremium(months: Int = 1) { api.buyPremium(months); refreshMe() }
 
-    suspend fun buyGift(itemId: String, toUserId: String?, message: String) = api.buyGift(itemId, toUserId, message).also { refreshMe() }
+    suspend fun buyGift(itemId: String, toUserId: String?, message: String) = api.buyGift(itemId, toUserId, message).also {
+        refreshMe()
+        app.ryzik.chat.ui.flux.Confetti.fire()
+    }
 
     suspend fun setMessagePrice(price: Int) { api.setMessagePrice(price); refreshMe() }
+
+    suspend fun setCallPrivacy(value: String) { api.setCallPrivacy(value); refreshMe() }
 
     /** Загружает картинку открыто (для подарков-NFT), уменьшив до 512 px. */
     suspend fun uploadGiftImage(uri: Uri): String = uploadImageScaled(uri, 512, "image/webp", square = true)
@@ -1112,6 +1117,7 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
                 if (m.senderId != myId) {
                     _typing.update { t -> t + (m.chatId to (t[m.chatId].orEmpty() - m.senderId)) }
                     chat(m.chatId)?.let { _incoming.tryEmit(it to ui) }
+                    if (m.type == "gift") app.ryzik.chat.ui.flux.Confetti.fire()
                 }
             }
             "message.updated" -> {

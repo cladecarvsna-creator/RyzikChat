@@ -261,6 +261,7 @@ class CallManager(private val context: Context, private val repo: ChatRepository
             "decline" -> finish("Собеседник отклонил звонок")
             "busy" -> finish("Собеседник занят")
             "unavailable" -> finish("Собеседник не в сети")
+            "forbidden" -> finish("Собеседник ограничил звонки")
             "waiting" -> _state.update { it.copy(peerOffline = true) }
         }
     }
@@ -410,6 +411,7 @@ class CallManager(private val context: Context, private val repo: ChatRepository
                 reason == "Нет ответа" || reason == "Собеседник не в сети" -> "missed"
                 reason == "Собеседник отклонил звонок" -> "declined"
                 reason == "Собеседник занят" -> "busy"
+                reason == "Собеседник ограничил звонки" -> "forbidden"
                 reason == "Звонок завершён" -> "cancelled"
                 else -> "failed"
             }

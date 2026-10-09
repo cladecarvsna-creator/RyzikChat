@@ -1,6 +1,7 @@
 package app.ryzik.chat
 
 import app.ryzik.chat.ui.flux.FluxScreen
+import app.ryzik.chat.ui.flux.ConfettiOverlay
 import app.ryzik.chat.ui.chat.StickerViewer
 import app.ryzik.chat.ui.chat.StickerPackDialog
 import android.Manifest
@@ -125,6 +126,8 @@ class MainActivity : ComponentActivity() {
                         if (pack != null && auth is AuthState.LoggedIn) {
                             StickerPackDialog(pack!!, onDismiss = { StickerViewer.close() })
                         }
+                        // Конфетти при подарке.
+                        if (auth is AuthState.LoggedIn) ConfettiOverlay()
                         // Звонок открывается поверх любого экрана.
                         val call by app.calls.state.collectAsState()
                         AnimatedVisibility(

@@ -191,21 +191,26 @@ fun FluxScreen(onBack: () -> Unit, onOpenPremium: () -> Unit) {
                     }
                 }
             }
-            // Витрина
+            // Витрина: подарки-эмодзи и NFT
+            val emojiGifts = shop.filter { it.kind == "emoji" }
+            val nfts = shop.filter { it.kind != "emoji" }
             item {
                 Text("Подарки", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 20.dp, top = 8.dp, bottom = 8.dp))
                 if (shop.isEmpty()) Text(
-                    "На витрине пока пусто. Подарки добавляет администрация.",
+                    "На витрине пока пусто.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 20.dp),
                 )
-                else Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    shop.chunked(3).forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            row.forEach { it -> GiftCard(it, Modifier.weight(1f)) { buying = it } }
-                            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
-                        }
-                    }
+                GiftGrid(emojiGifts) { buying = it }
+                if (nfts.isNotEmpty()) {
+                    Text("NFT", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 20.dp, top = 16.dp))
+                    Text(
+                        "Коллекционные подарки от администрации. У каждого экземпляра свой номер, тираж может быть ограничен.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
+                    )
+                    GiftGrid(nfts) { buying = it }
                 }
             }
             // История
@@ -236,15 +241,15 @@ fun FluxScreen(onBack: () -> Unit, onOpenPremium: () -> Unit) {
 
 fun dateText(t: Long): String = SimpleDateFormat("d MMMM yyyy", Locale("ru")).format(Date(t))
 
-/** Картинка подарка в скруглённой рамке с мягким градиентом. */
 @Composable
-fun GiftImage(fileId: String, modifier: Modifier = Modifier) {
-    Box(
-        modifier.aspectRatio(1f).clip(RoundedCornerShape(22.dp))
-            .background(Brush.linearGradient(FluxGradient.map { it.copy(alpha = 0.18f) })),
-        contentAlignment = Alignment.Center,
-    ) {
-        AsyncImage(RyzikApp.instance.repo.avatarUrl(fileId), null, Modifier.fillMaxSize().padding(10.dp))
+private fun GiftGrid(items: List<GiftItem>, onClick: (GiftItem) -> Unit) {
+    Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        items.chunked(3).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { g -> GiftCard(g, Modifier.weight(1f)) { onClick(g) } }
+                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
     }
 }
 
@@ -252,7 +257,7 @@ fun GiftImage(fileId: String, modifier: Modifier = Modifier) {
 private fun GiftCard(item: GiftItem, modifier: Modifier, onClick: () -> Unit) {
     Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainer, modifier = modifier) {
         Column(Modifier.clickable(enabled = item.left != 0, onClick = onClick).padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            GiftImage(item.fileId, Modifier.fillMaxWidth())
+            GiftImage(item, Modifier.fillMaxWidth())
             Spacer(Modifier.height(6.dp))
             Text(item.title, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (item.left == 0) Text("Раскуплен", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
@@ -278,7 +283,7 @@ fun BuyGiftDialog(item: GiftItem, to: User?, onDismiss: () -> Unit, onDone: () -
         title = { Text(if (to == null) "Купить «${item.title}»?" else "Подарить «${item.title}» ${to.displayName}?") },
         text = {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                GiftImage(item.fileId, Modifier.size(140.dp))
+                GiftImage(item, Modifier.size(140.dp))
                 if (item.description.isNotBlank()) Text(item.description, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium)
                 FluxAmount(item.price)
                 if (to != null) OutlinedTextField(message, { message = it.take(200) }, label = { Text("Подпись (необязательно)") }, shape = RoundedCornerShape(16.dp))
@@ -363,7 +368,7 @@ fun ProfileGifts(userId: String, isMe: Boolean, refreshKey: Int = 0) {
                     Surface(shape = RoundedCornerShape(22.dp), color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.weight(1f)) {
                         Column(Modifier.clickable { open = g }.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             Box {
-                                g.item?.let { GiftImage(it.fileId, Modifier.fillMaxWidth()) }
+                                g.item?.let { GiftImage(it, Modifier.fillMaxWidth()) }
                                 if (g.hidden) Icon(Icons.Rounded.VisibilityOff, "Скрыт", Modifier.align(Alignment.TopEnd).padding(6.dp).size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Text("#${g.serial}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -385,7 +390,7 @@ fun ProfileGifts(userId: String, isMe: Boolean, refreshKey: Int = 0) {
             title = { Text("${g.item?.title ?: "Подарок"} #${g.serial}") },
             text = {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    g.item?.let { GiftImage(it.fileId, Modifier.size(160.dp)) }
+                    g.item?.let { GiftImage(it, Modifier.size(160.dp)) }
                     g.item?.description?.takeIf { it.isNotBlank() }?.let { Text(it, textAlign = TextAlign.Center) }
                     g.from?.let { Text("От ${it.displayName} (@${it.username})", color = MaterialTheme.colorScheme.primary) }
                     if (g.message.isNotBlank()) Text("«${g.message}»", textAlign = TextAlign.Center)
@@ -463,7 +468,7 @@ private fun TransferGiftDialog(g: OwnedGift, onDismiss: () -> Unit, onDone: () -
             TextButton(enabled = to != null, onClick = {
                 scope.launch {
                     runCatching { repo.api.transferGift(g.id, to!!.id, message.trim()) }
-                        .onSuccess { onDone() }
+                        .onSuccess { onDone(); Confetti.fire() }
                         .onFailure { error = it.userMessage() }
                 }
             }) { Text("Подарить") }

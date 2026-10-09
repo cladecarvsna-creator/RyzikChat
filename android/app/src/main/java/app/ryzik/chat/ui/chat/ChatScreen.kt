@@ -490,7 +490,7 @@ fun ChatScreen(
                                 )
                             }
                             }
-                            if (chat?.type == "direct" && peer != null && !chat.peerBlocked) {
+                            if (chat?.type == "direct" && peer != null && !chat.peerBlocked && peer.callPrivacy != "nobody") {
                                 IconButton(onClick = { startCall(false) }) { Icon(Icons.Rounded.Call, "Звонок", tint = MaterialTheme.colorScheme.primary) }
                             } else Spacer(Modifier.width(12.dp))
                         }
@@ -521,7 +521,7 @@ fun ChatScreen(
                                 leadingIcon = { Icon(Icons.Rounded.Info, null) },
                                 onClick = { showMenu = false; onOpenInfo() },
                             )
-                            if (chat?.type == "direct" && peer != null && !chat.peerBlocked) {
+                            if (chat?.type == "direct" && peer != null && !chat.peerBlocked && peer.callPrivacy != "nobody") {
                                 DropdownMenuItem(
                                     text = { Text("Видеозвонок") },
                                     leadingIcon = { Icon(Icons.Rounded.Videocam, null) },

@@ -349,13 +349,15 @@ class ApiClient(
         call("POST", "/api/gifts/$giftId/transfer", buildJsonObject { put("toUserId", toUserId); put("message", message) }, OwnedGift.serializer())
     suspend fun setGiftHidden(giftId: String, hidden: Boolean) =
         call("PATCH", "/api/gifts/$giftId", buildJsonObject { put("hidden", hidden) }, OwnedGift.serializer())
+    suspend fun setCallPrivacy(value: String) = call("PATCH", "/api/me", buildJsonObject { put("callPrivacy", value) }, User.serializer())
     suspend fun setMessagePrice(price: Int) = call("PATCH", "/api/me", buildJsonObject { put("messagePrice", price) }, User.serializer())
     suspend fun grantFlux(userId: String, amount: Long, note: String) =
         call("POST", "/api/admin/users/$userId/flux", buildJsonObject { put("amount", amount); put("note", note) }, User.serializer())
     suspend fun adminGiftItems() = call("GET", "/api/admin/gift-items", null, ListSerializer(GiftItem.serializer()))
-    suspend fun createGiftItem(title: String, description: String, fileId: String, price: Long, supply: Int?) =
+    suspend fun createGiftItem(title: String, description: String, fileId: String, price: Long, supply: Int?, caption: String = "", animation: String = "none") =
         call("POST", "/api/admin/gift-items", buildJsonObject {
             put("title", title); put("description", description); put("fileId", fileId); put("price", price); put("supply", supply)
+            put("caption", caption); put("animation", animation)
         }, GiftItem.serializer())
     suspend fun updateGiftItem(id: String, active: Boolean? = null, price: Long? = null) =
         call("PATCH", "/api/admin/gift-items/$id", buildJsonObject {

@@ -698,6 +698,9 @@ private fun PrivacySettings(s: AppSettings, update: ((AppSettings) -> AppSetting
     SwitchRow("Отчёты о прочтении", "Показывать галочки «прочитано»", s.showReadReceipts) { v -> update { it.copy(showReadReceipts = v) } }
     SwitchRow("Статус «печатает…»", "Показывать, когда собеседник набирает текст", s.showTyping) { v -> update { it.copy(showTyping = v) } }
 
+    Header("Звонки")
+    CallPrivacySection()
+
     Header("Платные сообщения")
     MessagePriceSection()
 
@@ -756,6 +759,40 @@ private fun PrivacySettings(s: AppSettings, update: ((AppSettings) -> AppSetting
             dismissButton = { TextButton(onClick = { changing = false }) { Text("Отмена") } },
         )
     }
+}
+
+/** Кто может мне звонить: все, только контакты или никто. */
+@Composable
+private fun CallPrivacySection() {
+    val repo = RyzikApp.instance.repo
+    val scope = rememberCoroutineScope()
+    val auth by repo.auth.collectAsState()
+    val me = (auth as? AuthState.LoggedIn)?.me ?: return
+    var err by remember { mutableStateOf<String?>(null) }
+    val options = listOf("all" to "Все", "contacts" to "Мои контакты", "nobody" to "Никто")
+    Text(
+        when (me.callPrivacy) {
+            "nobody" -> "Вам никто не может позвонить."
+            "contacts" -> "Звонить вам могут только люди из ваших контактов."
+            else -> "Звонить вам может любой, с кем у вас есть общий чат."
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+    )
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        options.forEachIndexed { i, (key, label) ->
+            SegmentedButton(
+                selected = me.callPrivacy == key,
+                onClick = {
+                    err = null
+                    scope.launch { runCatching { repo.setCallPrivacy(key) }.onFailure { err = it.userMessage() } }
+                },
+                shape = SegmentedButtonDefaults.itemShape(i, options.size),
+            ) { Text(label, maxLines = 1) }
+        }
+    }
+    err?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 20.dp)) }
 }
 
 /** Цена сообщения в FLUX для тех, кого нет в ваших контактах. FLUX достаются вам. */

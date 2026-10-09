@@ -612,7 +612,7 @@ private fun GiftContent(g: app.ryzik.chat.data.GiftRef, mine: Boolean, onBubble:
         Modifier.padding(10.dp).widthIn(min = 180.dp, max = 220.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        app.ryzik.chat.ui.flux.GiftImage(g.fileId, Modifier.size(140.dp))
+        app.ryzik.chat.ui.flux.GiftImage(g, Modifier.size(140.dp))
         Spacer(Modifier.height(8.dp))
         Text(
             if (mine) "Вы подарили" else "Подарок для вас",
@@ -642,6 +642,7 @@ private fun CallContent(call: app.ryzik.chat.data.CallRef, mine: Boolean, onBubb
         call.status == "missed" && !mine -> "Пропущенный"
         call.status == "declined" -> if (mine) "Отклонён собеседником" else "Отклонённый"
         call.status == "busy" -> "Занято"
+        call.status == "forbidden" -> "Звонки ограничены"
         call.status == "cancelled" -> if (mine) "Отменённый" else "Пропущенный"
         call.status == "missed" -> "Без ответа"
         else -> "Не удалось соединиться"

@@ -189,7 +189,25 @@ test('каналы, премиум, сигналы звонков, докуме�
   await new Promise((r) => b3.on('open', r));
   await new Promise((r) => setTimeout(r, 150));
   assert.equal(after.filter((e) => e.type === 'call.signal').length, 0);
-  a.close(); b3.close();
+  b3.close();
+
+  // «Кто может мне звонить»: никто — звонящий сразу получает forbidden, сигнал не доходит.
+  await api('PATCH', '/api/me', { callPrivacy: 'nobody' }, fan.body.token);
+  const fromA2 = [];
+  a.on('message', (d) => fromA2.push(JSON.parse(String(d))));
+  a.send(JSON.stringify({ type: 'call.signal', to: fan.body.user.id, data: { kind: 'offer', callId: 'c3', sdp: 'v=0' } }));
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(fromA2.find((e) => e.type === 'call.signal')?.data.kind, 'forbidden');
+  // Только контакты: пока владелец не в контактах — нельзя, после добавления — можно.
+  await api('PATCH', '/api/me', { callPrivacy: 'contacts' }, fan.body.token);
+  assert.equal((await api('GET', '/api/me', null, fan.body.token)).body.callPrivacy, 'contacts');
+  await api('PUT', `/api/contacts/${owner.body.user.id}`, null, fan.body.token);
+  fromA2.length = 0;
+  a.send(JSON.stringify({ type: 'call.signal', to: fan.body.user.id, data: { kind: 'offer', callId: 'c4', sdp: 'v=0' } }));
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(fromA2.find((e) => e.type === 'call.signal')?.data.kind, 'waiting');
+  a.send(JSON.stringify({ type: 'call.signal', to: fan.body.user.id, data: { kind: 'hangup', callId: 'c4' } }));
+  a.close();
 
   const cfg = await api('GET', '/api/calls/config', null, fan.body.token);
   assert.ok(cfg.body.iceServers.length >= 1);
@@ -430,6 +448,10 @@ test('FLUX: выдача, подарки (NFT), Премиум за FLUX, пла
   assert.equal((await api('POST', '/api/gifts/buy', { itemId: item.id }, x.token)).body.error, 'sold_out');
   const yGifts = (await api('GET', `/api/users/${y.user.id}/gifts`, null, x.token)).body;
   assert.equal(yGifts[0].from.username, 'fluxx');
+  // На витрине есть встроенные подарки-эмодзи.
+  const shop = (await api('GET', '/api/gifts/shop', null, x.token)).body;
+  assert.ok(shop.some((g) => g.kind === 'emoji' && g.emoji === '🧸' && g.animation === 'bounce'));
+  assert.equal(shop.find((g) => g.id === item.id)?.kind, 'nft');
   // Подарок виден в личном чате как сообщение от дарителя.
   const giftChat = (await api('POST', '/api/chats/direct', { userId: x.user.id }, y.token)).body;
   const giftMsgs = (await api('GET', `/api/chats/${giftChat.id}/messages`, null, y.token)).body;

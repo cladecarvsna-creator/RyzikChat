@@ -114,7 +114,9 @@ export class Hub {
           this.sendToUsers(others, { type: 'typing', chatId: msg.chatId, userId, action: msg.action ?? 'typing' });
         } else if (msg.type === 'call.signal' && typeof msg.to === 'string' && msg.data && typeof msg.data === 'object') {
           // Сигналы WebRTC (offer/answer/ice/hangup…) пересылаем, только если у людей есть общий чат.
-          if (msg.to !== userId && locals.sharedChatPeers(userId).includes(msg.to) && !locals.isBlocked(userId, msg.to)) {
+          if (msg.data.kind === 'offer' && msg.to !== userId && locals.canCall && !locals.canCall(userId, msg.to)) {
+            ws.send(JSON.stringify({ type: 'call.signal', from: msg.to, data: { kind: 'forbidden', callId: msg.data.callId } }));
+          } else if (msg.to !== userId && locals.sharedChatPeers(userId).includes(msg.to) && !locals.isBlocked(userId, msg.to)) {
             const delivered = this.isConnected(msg.to);
             this.trackCallSignal(userId, msg.to, msg.data);
             this.sendToUsers([msg.to], { type: 'call.signal', from: userId, data: msg.data });

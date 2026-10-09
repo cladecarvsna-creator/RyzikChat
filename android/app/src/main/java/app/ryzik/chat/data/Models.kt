@@ -48,6 +48,8 @@ data class User(
     val createdAt: Long = 0,
     /** Сколько FLUX стоит написать этому человеку, если вы не у него в контактах. */
     val messagePrice: Int = 0,
+    /** Кто может звонить: all, contacts, nobody. */
+    val callPrivacy: String = "all",
     /** Только для себя: баланс FLUX и до какого времени куплен Премиум. */
     val flux: Long = 0,
     val premiumUntil: Long? = null,
@@ -71,6 +73,10 @@ data class GiftItem(
     val sold: Int = 0,
     val left: Int? = null,
     val active: Boolean = true,
+    val kind: String = "nft",
+    val emoji: String? = null,
+    val caption: String = "",
+    val animation: String = "none",
 )
 
 /** Купленный экземпляр подарка с номером. */
@@ -259,6 +265,10 @@ data class GiftRef(
     val supply: Int? = null,
     val price: Long = 0,
     val message: String = "",
+    val kind: String = "nft",
+    val emoji: String? = null,
+    val caption: String = "",
+    val animation: String = "none",
 )
 
 /** Запись о звонке в чате. status: ok, missed, declined, busy, cancelled, failed. */
@@ -315,6 +325,7 @@ fun callText(c: CallRef?): String {
         "missed" -> "Пропущенный ${kind.lowercase()}"
         "declined" -> "$kind отклонён"
         "busy" -> "$kind: занято"
+        "forbidden" -> "$kind: звонки ограничены"
         "cancelled" -> "Отменённый ${kind.lowercase()}"
         else -> "$kind не состоялся"
     }

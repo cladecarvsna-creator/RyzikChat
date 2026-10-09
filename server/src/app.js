@@ -72,6 +72,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
       profileStyle: hasPremium(row) && row.profile_style ? JSON.parse(row.profile_style) : null,
       // Сколько FLUX стоит написать этому человеку, если вы не у него в контактах.
       messagePrice: row.message_price ?? 0,
+      callPrivacy: row.call_privacy ?? 'all',
       publicKey: row.public_key,
       online: hub.isOnline(row.id),
       lastSeen: row.last_seen,
@@ -279,7 +280,10 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     const item = g && giftItemRow.get(g.item_id);
     if (!item) return;
     const chatId = directChatId(fromId, toId);
-    const gift = { giftId: g.id, itemId: item.id, title: item.title, fileId: item.file_id, serial: g.serial, supply: item.supply ?? null, price: item.price, message: g.message ?? '' };
+    const gift = {
+      giftId: g.id, itemId: item.id, title: item.title, fileId: item.file_id, serial: g.serial, supply: item.supply ?? null, price: item.price,
+      message: g.message ?? '', kind: item.kind ?? 'nft', emoji: item.emoji ?? null, caption: item.caption ?? '', animation: item.animation ?? 'none',
+    };
     const msg = tx(db, () => {
       const chat = getChatRow.get(chatId);
       const seq = chat.last_seq + 1;
@@ -344,7 +348,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     return token;
   }
 
-  app.get('/api/health', (_req, res) => res.json({ ok: true, name: 'RyzikChat', version: '0.7.1', apiVersion: 1 }));
+  app.get('/api/health', (_req, res) => res.json({ ok: true, name: 'RyzikChat', version: '0.7.2', apiVersion: 1 }));
 
   // Открытое описание API — чтобы можно было написать клиент под любое устройство.
   app.get('/api/openapi.json', (_req, res) => res.sendFile(path.join(import.meta.dirname, '..', 'openapi.json')));
@@ -608,6 +612,10 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     if (bio !== undefined) db.prepare('UPDATE users SET bio = ? WHERE id = ?').run(String(bio).slice(0, 300), req.userId);
     if (avatarFileId !== undefined) {
       db.prepare('UPDATE users SET avatar_file_id = ? WHERE id = ?').run(avatarFileId || null, req.userId);
+    }
+    if (req.body?.callPrivacy !== undefined) {
+      const v = ['all', 'contacts', 'nobody'].includes(req.body.callPrivacy) ? req.body.callPrivacy : 'all';
+      db.prepare('UPDATE users SET call_privacy = ? WHERE id = ?').run(v, req.userId);
     }
     if (req.body?.messagePrice !== undefined) {
       const price = Math.max(0, Math.min(10_000, Math.floor(Number(req.body.messagePrice) || 0)));
@@ -1214,6 +1222,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
   function giftItemView(it) {
     return {
       id: it.id, title: it.title, description: it.description, fileId: it.file_id, price: it.price,
+      kind: it.kind ?? 'nft', emoji: it.emoji ?? null, caption: it.caption ?? '', animation: it.animation ?? 'none',
       supply: it.supply ?? null, sold: it.sold, left: it.supply == null ? null : Math.max(0, it.supply - it.sold), active: !!it.active,
     };
   }
@@ -1227,8 +1236,22 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     };
   }
 
+  // Встроенные подарки-эмодзи. Создаются один раз; админ может поменять цену или выключить.
+  const EMOJI_GIFTS = [
+    ['🧸', 'Мишка', 15, 'bounce'], ['🌹', 'Роза', 25, 'sway'], ['💝', 'Сердце', 50, 'pulse'], ['🎂', 'Торт', 50, 'bounce'],
+    ['💐', 'Букет', 75, 'sway'], ['🍾', 'Шампанское', 100, 'shake'], ['🎁', 'Сюрприз', 100, 'shake'], ['🏆', 'Кубок', 150, 'shine'],
+    ['💎', 'Алмаз', 250, 'spin'], ['🚀', 'Ракета', 300, 'float'], ['💍', 'Кольцо', 500, 'shine'], ['👑', 'Корона', 1000, 'shine'],
+  ];
+  for (const [emoji, title, price, animation] of EMOJI_GIFTS) {
+    if (!db.prepare("SELECT 1 FROM gift_items WHERE kind = 'emoji' AND emoji = ?").get(emoji)) {
+      db.prepare(`INSERT INTO gift_items (id, title, description, file_id, price, supply, created_by, created_at, kind, emoji, animation)
+        VALUES (?, ?, '', '', ?, NULL, ?, ?, 'emoji', ?, ?)`).run(newId(), title, price, SYSTEM_ID, now(), emoji, animation);
+    }
+  }
+  const GIFT_ANIMATIONS = new Set(['none', 'bounce', 'pulse', 'sway', 'shake', 'spin', 'float', 'shine']);
+
   app.get('/api/gifts/shop', (_req, res) => {
-    res.json(db.prepare('SELECT * FROM gift_items WHERE active = 1 ORDER BY price, created_at').all().map(giftItemView));
+    res.json(db.prepare("SELECT * FROM gift_items WHERE active = 1 ORDER BY kind = 'nft', price, created_at").all().map(giftItemView));
   });
 
   /** Покупка подарка себе или в подарок другому. */
@@ -1315,8 +1338,11 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     if (supply !== null && !(supply > 0)) throw new HttpError(400, 'bad_supply', 'Тираж — положительное число или пусто');
     if (!f || !f.mime.startsWith('image/')) throw new HttpError(400, 'bad_file', 'Нужна картинка');
     const id = newId();
-    db.prepare(`INSERT INTO gift_items (id, title, description, file_id, price, supply, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, title, String(req.body?.description ?? '').trim().slice(0, 300), fileId, price, supply, req.userId, now());
+    const animation = GIFT_ANIMATIONS.has(req.body?.animation) ? req.body.animation : 'none';
+    const caption = String(req.body?.caption ?? '').trim().slice(0, 40);
+    db.prepare(`INSERT INTO gift_items (id, title, description, file_id, price, supply, created_by, created_at, kind, caption, animation)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'nft', ?, ?)`)
+      .run(id, title, String(req.body?.description ?? '').trim().slice(0, 300), fileId, price, supply, req.userId, now(), caption, animation);
     res.status(201).json(giftItemView(giftItemRow.get(id)));
   });
 
@@ -1527,6 +1553,14 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
   app.locals.resolveToken = (token) => sessionStmt.get(String(token))?.user_id ?? null;
   app.locals.isMember = (chatId, userId) => !!membershipStmt.get(chatId, userId);
   app.locals.isBlocked = (userId, byWhom) => isBlocked(byWhom, userId);
+  /** Может ли `from` позвонить `to` по настройке «Кто может мне звонить». */
+  app.locals.canCall = (from, to) => {
+    const row = getUserRow.get(to);
+    if (!row) return false;
+    if (row.call_privacy === 'nobody') return false;
+    if (row.call_privacy === 'contacts') return !!contactStmt.get(to, from);
+    return true;
+  };
   app.locals.touchLastSeen = (userId) => db.prepare('UPDATE users SET last_seen = ? WHERE id = ?').run(now(), userId);
 
   return app;

@@ -213,6 +213,15 @@ function migrate(db) {
     );
     CREATE INDEX IF NOT EXISTS gifts_owner ON gifts(owner_id);
   `);
+  // Кто может звонить: all / contacts / nobody.
+  if (!cols('users').includes('call_privacy')) db.exec("ALTER TABLE users ADD COLUMN call_privacy TEXT NOT NULL DEFAULT 'all'");
+  // Подарки бывают двух видов: эмодзи (встроенные) и NFT (картинка от админа). У обоих есть анимация.
+  if (!cols('gift_items').includes('kind')) {
+    db.exec("ALTER TABLE gift_items ADD COLUMN kind TEXT NOT NULL DEFAULT 'nft'");
+    db.exec('ALTER TABLE gift_items ADD COLUMN emoji TEXT');
+    db.exec("ALTER TABLE gift_items ADD COLUMN caption TEXT NOT NULL DEFAULT ''");
+    db.exec("ALTER TABLE gift_items ADD COLUMN animation TEXT NOT NULL DEFAULT 'none'");
+  }
   if (!cols('chats').includes('wallpaper_file_id')) db.exec('ALTER TABLE chats ADD COLUMN wallpaper_file_id TEXT');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS chats_invite_code ON chats(invite_code)');
   if (!cols('users').includes('email')) {
