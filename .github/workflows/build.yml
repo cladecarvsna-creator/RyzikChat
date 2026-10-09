@@ -61,9 +61,17 @@ jobs:
           git -C /tmp/fluent checkout -q
           python3 tools/emoji/build_font.py /tmp/fluent/assets android/app/src/main/assets/emoji/ryzik_emoji.ttf
       - name: Тесты
-        run: ./gradlew testDebugUnitTest --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew testDebugUnitTest --stacktrace 2>&1 | tee -a gradle.log
       - name: Сборка APK
-        run: ./gradlew assembleRelease --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew assembleRelease --stacktrace 2>&1 | tee -a gradle.log
+      # Ошибки компиляции — в аннотации запуска, чтобы их было видно без скачивания логов.
+      - name: Ошибки сборки
+        if: failure()
+        run: grep -E '^e: |error:|FAILED' gradle.log | head -40 | sed 's/^/::error::/' || true
       - name: Переименовать APK
         run: cp app/build/outputs/apk/release/app-release.apk RyzikChat.apk
       - name: Описание обновления (update.json)

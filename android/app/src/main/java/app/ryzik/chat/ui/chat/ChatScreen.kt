@@ -379,6 +379,12 @@ fun ChatScreen(
                         val lastInGroup = newer == null || newer.senderId != m.senderId || !isSameDay(newer.createdAt, m.createdAt) || newer.createdAt - m.createdAt > 5 * 60_000
                         // Пост канала попал на экран — засчитываем просмотр.
                         if (chat?.type == "channel" && m.status == SendStatus.Sent && !m.deleted) LaunchedEffect(m.id) { repo.markViewed(chatId, m.id) }
+                        val avatarSlot: (@Composable () -> Unit)? =
+                            if (chat?.type == "group") { { SenderAvatar(users[m.senderId], m.senderId, onOpenProfile, onOpenChat) } } else null
+                        val commentsSlot: (@Composable () -> Unit)? =
+                            if (chat?.type == "channel" && chat.discussionId != null && !m.deleted && m.status == SendStatus.Sent) {
+                                { CommentsButton(m.comments) { onOpenComments(m.id) } }
+                            } else null
                         Column(Modifier.animateItem()) {
                             if (older == null || !isSameDay(older.createdAt, m.createdAt)) DateChip(m.createdAt)
                             val replied = m.replyTo?.let { id -> messages.firstOrNull { it.id == id } }
@@ -408,10 +414,8 @@ fun ChatScreen(
                                     if (idx >= 0) scope.launch { listState.animateScrollToItem(idx) }
                                 },
                                 onRetry = { repo.retry(m) },
-                                avatar = if (chat?.type == "group") ({ SenderAvatar(users[m.senderId], m.senderId, onOpenProfile, onOpenChat) }) else null,
-                                footer = if (chat?.type == "channel" && chat.discussionId != null && !m.deleted && m.status == SendStatus.Sent) ({
-                                    CommentsButton(m.comments) { onOpenComments(m.id) }
-                                }) else null,
+                                avatar = avatarSlot,
+                                footer = commentsSlot,
                             )
                         }
                     }

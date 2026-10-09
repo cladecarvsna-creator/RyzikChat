@@ -211,7 +211,7 @@ fun MessageBubble(
             verticalAlignment = Alignment.Bottom,
         ) {
         if (withAvatar) {
-            Box(Modifier.padding(bottom = if (footer != null) 40.dp else 2.dp).size(34.dp)) { if (lastInGroup) avatar!!() }
+            Box(Modifier.padding(bottom = if (footer != null) 40.dp else 2.dp).size(34.dp)) { if (lastInGroup) avatar?.invoke() }
             Spacer(Modifier.width(6.dp))
         }
         Column(
