@@ -304,6 +304,21 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
         connectSocket()
     }
 
+    /**
+     * Смена @юзернейма. Ключ входа и ключ, которым зашифрован приватный ключ, выводятся из
+     * юзернейма и пароля, поэтому нужен текущий пароль: пересчитываем их для нового имени.
+     */
+    suspend fun changeUsername(newUsername: String, password: String) = withContext(Dispatchers.Default) {
+        val me = (auth.value as AuthState.LoggedIn).me
+        val name = newUsername.trim().removePrefix("@")
+        val oldKeys = E2E.derivePasswordKeys(me.username, password)
+        val newKeys = E2E.derivePasswordKeys(name, password)
+        api.changeUsername(name, oldKeys.authKey, newKeys.authKey, E2E.sealPrivateKey(privateKey!!, newKeys.vaultKey))
+        val s = prefs.session.first()
+        if (s.token != null && s.userId != null && s.wrappedPrivateKey != null) prefs.saveSession(s.token, s.userId, name, s.wrappedPrivateKey)
+        refreshMe()
+    }
+
     suspend fun changePassword(old: String, new: String) = withContext(Dispatchers.Default) {
         val me = (auth.value as AuthState.LoggedIn).me
         val oldKeys = E2E.derivePasswordKeys(me.username, old)

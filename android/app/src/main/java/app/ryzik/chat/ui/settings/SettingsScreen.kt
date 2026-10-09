@@ -1,5 +1,6 @@
 package app.ryzik.chat.ui.settings
 
+import androidx.compose.material.icons.rounded.AlternateEmail
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material3.FilterChip
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -721,6 +722,8 @@ private fun PrivacySettings(s: AppSettings, update: ((AppSettings) -> AppSetting
     }
     Header("Двухэтапная проверка")
     TwoFactorSection()
+    Header("Юзернейм")
+    UsernameSection()
     Header("Пароль")
     ListItem(
         headlineContent = { Text("Сменить пароль") },
@@ -757,6 +760,65 @@ private fun PrivacySettings(s: AppSettings, update: ((AppSettings) -> AppSetting
                 }) { Text("Сменить") }
             },
             dismissButton = { TextButton(onClick = { changing = false }) { Text("Отмена") } },
+        )
+    }
+}
+
+/** Смена своего @юзернейма: нужен текущий пароль, ключи шифрования пересчитываются. */
+@Composable
+private fun UsernameSection() {
+    val repo = RyzikApp.instance.repo
+    val scope = rememberCoroutineScope()
+    val auth by repo.auth.collectAsState()
+    val me = (auth as? AuthState.LoggedIn)?.me ?: return
+    var open by remember { mutableStateOf(false) }
+    var done by remember { mutableStateOf<String?>(null) }
+    ListItem(
+        headlineContent = { Text("@${me.username}") },
+        supportingContent = { Text("Сменить юзернейм. По нему вас находят и по нему вы входите") },
+        leadingContent = { Icon(Icons.Rounded.AlternateEmail, null) },
+        modifier = Modifier.clickable { open = true },
+    )
+    done?.let { Text(it, Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.primary) }
+    if (open) {
+        var name by remember { mutableStateOf(me.username) }
+        var password by remember { mutableStateOf("") }
+        var err by remember { mutableStateOf<String?>(null) }
+        var busy by remember { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = { if (!busy) open = false },
+            shape = RoundedCornerShape(28.dp),
+            title = { Text("Новый юзернейм") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        name, { v -> name = v.removePrefix("@").filter { it.isLetterOrDigit() || it == '_' }.take(32) },
+                        label = { Text("Юзернейм") }, prefix = { Text("@") }, singleLine = true, shape = RoundedCornerShape(16.dp),
+                    )
+                    OutlinedTextField(
+                        password, { password = it }, label = { Text("Текущий пароль") }, singleLine = true, shape = RoundedCornerShape(16.dp),
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    )
+                    Text(
+                        "Пароль нужен, чтобы перешифровать ключи под новый юзернейм. Входить потом нужно будет с новым юзернеймом.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    err?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = !busy && name.length >= 3 && name != me.username && password.isNotEmpty(), onClick = {
+                    busy = true; err = null
+                    scope.launch {
+                        runCatching { repo.changeUsername(name, password) }
+                            .onSuccess { open = false; done = "Юзернейм изменён на @$name" }
+                            .onFailure { err = if (it is app.ryzik.chat.data.ApiException && it.code == "bad_credentials") "Неверный пароль" else it.userMessage() }
+                        busy = false
+                    }
+                }) { Text(if (busy) "Сохраняем…" else "Сменить") }
+            },
+            dismissButton = { TextButton(enabled = !busy, onClick = { open = false }) { Text("Отмена") } },
         )
     }
 }

@@ -675,6 +675,27 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     res.json(me);
   });
 
+  // Смена @юзернейма. Ключи шифрования выводятся из юзернейма и пароля, поэтому приложение
+  // присылает старый ключ входа, новый ключ входа (для нового юзернейма) и заново зашифрованный ключ.
+  app.post('/api/me/username', (req, res) => {
+    const { password, newPassword, encryptedPrivateKey } = req.body ?? {};
+    const username = String(req.body?.username ?? '').trim().replace(/^@/, '');
+    const row = getUserRow.get(req.userId);
+    if (!verifyPassword(String(password ?? ''), row.password_hash)) throw new HttpError(403, 'bad_credentials', 'Неверный пароль');
+    if (!USERNAME_RE.test(username)) throw new HttpError(400, 'bad_username', 'Имя пользователя: 3–32 символа, латиница, цифры и _');
+    if (typeof newPassword !== 'string' || newPassword.length < 8 || typeof encryptedPrivateKey !== 'string') {
+      throw new HttpError(400, 'bad_keys', 'Нет новых ключей шифрования');
+    }
+    const taken = db.prepare('SELECT id FROM users WHERE lower(username) = lower(?) AND id != ?').get(username, req.userId)
+      || db.prepare('SELECT 1 FROM chats WHERE lower(username) = lower(?)').get(username);
+    if (taken) throw new HttpError(409, 'username_taken', 'Это имя пользователя уже занято');
+    db.prepare('UPDATE users SET username = ?, password_hash = ?, encrypted_private_key = ? WHERE id = ?')
+      .run(username, hashPassword(newPassword), encryptedPrivateKey, req.userId);
+    const me = getUser(req.userId);
+    hub.broadcastUser(req.userId, { type: 'user.updated', user: me });
+    res.json(meView(req.userId));
+  });
+
   app.post('/api/me/password', (req, res) => {
     const { oldPassword, newPassword, encryptedPrivateKey } = req.body ?? {};
     const row = getUserRow.get(req.userId);

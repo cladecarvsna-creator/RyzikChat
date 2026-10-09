@@ -501,3 +501,28 @@ test('FLUX: выдача, подарки (NFT), Премиум за FLUX, пла
   const hist = (await api('GET', '/api/flux', null, x.token)).body;
   assert.deepEqual(hist.history.map((h) => h.kind), ['paid_message', 'premium', 'gift', 'admin']);
 });
+
+test('смена юзернейма: новый ключ входа, старый перестаёт работать, занятые имена', async () => {
+  const u = await reg('renameme');
+  await reg('takenname');
+  const t = u.body.token;
+  const body = (username) => ({ username, password: 'x'.repeat(64), newPassword: 'y'.repeat(64), encryptedPrivateKey: 'enc-new' });
+  assert.equal((await api('POST', '/api/me/username', { ...body('newname1'), password: 'wrong-password' }, t)).body.error, 'bad_credentials');
+  assert.equal((await api('POST', '/api/me/username', body('TakenName'), t)).body.error, 'username_taken');
+  assert.equal((await api('POST', '/api/me/username', body('no'), t)).body.error, 'bad_username');
+  const ok = await api('POST', '/api/me/username', body('newname1'), t);
+  assert.equal(ok.body.username, 'newname1');
+  assert.equal((await api('POST', '/api/auth/login', { username: 'renameme', password: 'x'.repeat(64) })).status, 401);
+  const login = await api('POST', '/api/auth/login', { username: 'newname1', password: 'y'.repeat(64) });
+  assert.equal(login.body.encryptedPrivateKey, 'enc-new');
+  assert.equal((await api('GET', '/api/me', null, t)).status, 200, 'текущий сеанс остаётся');
+});
+
+test('папка данных: рядом с сервером (ISO/data), DATA_DIR или старая ./data', async () => {
+  const { resolveDataDir } = await import('../src/index.js');
+  const path = await import('node:path');
+  const root = path.resolve(import.meta.dirname, '..');
+  assert.equal(resolveDataDir({ DATA_DIR: '/tmp/x' }), '/tmp/x');
+  const r = resolveDataDir({});
+  assert.ok(r === path.resolve(root, '..', 'data') || r.endsWith(path.join('server', 'data')) || r === path.resolve('data'));
+});

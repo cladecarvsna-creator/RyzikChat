@@ -148,6 +148,11 @@ class ApiClient(
     suspend fun sessions() = call("GET", "/api/sessions", null, ListSerializer(SessionInfo.serializer()))
     suspend fun terminateOtherSessions() = callUnit("POST", "/api/sessions/terminate-others")
 
+    suspend fun changeUsername(username: String, oldAuth: String, newAuth: String, encryptedPrivateKey: String) =
+        call("POST", "/api/me/username", buildJsonObject {
+            put("username", username); put("password", oldAuth); put("newPassword", newAuth); put("encryptedPrivateKey", encryptedPrivateKey)
+        }, User.serializer())
+
     suspend fun changePassword(oldAuth: String, newAuth: String, encryptedPrivateKey: String) =
         callUnit("POST", "/api/me/password", buildJsonObject {
             put("oldPassword", oldAuth)

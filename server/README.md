@@ -8,7 +8,7 @@
 ```bash
 cd server
 npm install
-npm start            # http://0.0.0.0:8080, данные в ./data
+npm start            # http://0.0.0.0:8080, данные в ../data (папка data рядом с папкой сервера)
 ```
 
 Или в Docker:

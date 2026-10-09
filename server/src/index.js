@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,13 +51,28 @@ export function startServer({ port = 8080, dataDir = './data', adminUsernames = 
   });
 }
 
+/**
+ * Где лежат данные. DATA_DIR — если задан. Иначе папка data рядом с папкой сервера
+ * (например, ISO/data для сервера в ISO/server): так самообновление кода её точно не заденет.
+ * Если там базы ещё нет, а в ./data (старое место) есть — берём старое, чтобы ничего не потерять.
+ */
+export function resolveDataDir(env = process.env) {
+  if (env.DATA_DIR) return path.resolve(env.DATA_DIR);
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const sibling = path.resolve(root, '..', 'data');
+  const legacy = [path.resolve('data'), path.join(root, 'data')];
+  const hasDb = (dir) => fs.existsSync(path.join(dir, 'ryzikchat.db'));
+  if (hasDb(sibling)) return sibling;
+  return legacy.find(hasDb) ?? sibling;
+}
+
 // Запуск напрямую (`npm start`). Сравниваем пути, а не строки URL: на Windows и в папках
 // с русскими буквами URL выглядит иначе, и раньше сервер молча завершался.
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
 if (isMain) {
   const port = Number(process.env.PORT ?? 8080);
-  const dataDir = path.resolve(process.env.DATA_DIR ?? './data');
+  const dataDir = resolveDataDir();
   const adminUsernames = (process.env.ADMIN_USERNAMES ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
   // Приложение само проверяет обновления на GitHub. Раздавать сборки с этого сервера можно,
   // указав UPDATE_SOURCE (например, UPDATE_SOURCE=github) — тогда сервер будет их забирать.
