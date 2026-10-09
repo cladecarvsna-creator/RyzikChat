@@ -71,7 +71,8 @@ jobs:
       # Ошибки компиляции — в аннотации запуска, чтобы их было видно без скачивания логов.
       - name: Ошибки сборки
         if: failure()
-        run: grep -E '^e: |error:|FAILED' gradle.log | head -40 | sed 's/^/::error::/' || true
+        run: |
+          grep -E '^e: |error:|FAILED' gradle.log | head -40 | sed 's/^/::error::/' || true
       - name: Переименовать APK
         run: cp app/build/outputs/apk/release/app-release.apk RyzikChat.apk
       - name: Описание обновления (update.json)
