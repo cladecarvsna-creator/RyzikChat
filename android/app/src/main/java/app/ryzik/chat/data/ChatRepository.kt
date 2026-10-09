@@ -109,7 +109,9 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
 
     private val messageFlows = ConcurrentHashMap<String, MutableStateFlow<List<UiMessage>>>()
     private val hasMore = ConcurrentHashMap<String, Boolean>()
-    private val decryptCache = ConcurrentHashMap<String, Content?>()
+    // ConcurrentHashMap не хранит null, поэтому неудачную расшифровку храним в обёртке.
+    private class Decrypted(val content: Content?)
+    private val decryptCache = ConcurrentHashMap<String, Decrypted>()
 
     /** Почта аккаунта (её видит только владелец). */
     private val _stickerPacks = MutableStateFlow<List<StickerPack>>(emptyList())
@@ -708,7 +710,7 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
         val key = "${m.id}:${m.editedAt ?: 0}"
         val content: Content? = when {
             m.deleted || m.payload.isNullOrEmpty() -> null
-            decryptCache.containsKey(key) -> decryptCache[key]
+            decryptCache.containsKey(key) -> decryptCache[key]?.content
             else -> {
                 val c = runCatching {
                     val obj = AppJson.parseToJsonElement(m.payload!!).jsonObject
@@ -719,7 +721,7 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
                         AppJson.decodeFromString(Content.serializer(), E2E.decrypt(m.payload!!, myId!!, privateKey!!))
                     }
                 }.getOrNull()
-                decryptCache[key] = c
+                decryptCache[key] = Decrypted(c)
                 c
             }
         }
@@ -794,7 +796,7 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
         scope.launch {
             try {
                 val sent = postMessage(chatId, type, content, replyTo, forwardedFrom, clientId)
-                decryptCache["${sent.id}:0"] = content
+                decryptCache["${sent.id}:0"] = Decrypted(content)
                 merge(chatId, listOf(decrypt(sent)))
                 bumpChat(sent)
             } catch (e: Exception) {
@@ -930,7 +932,7 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
                 media.getOrPut(up.id) { MutableStateFlow(MediaState.Idle) }.value = MediaState.Ready(ready)
                 val finalContent = content.copy(file = content.file!!.copy(id = up.id, key = key))
                 val sent = postMessage(chatId, type, finalContent, replyTo, null, clientId)
-                decryptCache["${sent.id}:0"] = finalContent
+                decryptCache["${sent.id}:0"] = Decrypted(finalContent)
                 merge(chatId, listOf(decrypt(sent).copy(localFile = ready)))
                 bumpChat(sent)
                 local.delete()
@@ -945,7 +947,7 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
     suspend fun editMessage(msg: UiMessage, newText: String) {
         val c = (msg.content ?: return).copy(text = newText.trim())
         val updated = api.editMessage(msg.id, encryptFor(msg.chatId, c))
-        decryptCache["${updated.id}:${updated.editedAt ?: 0}"] = c
+        decryptCache["${updated.id}:${updated.editedAt ?: 0}"] = Decrypted(c)
         merge(msg.chatId, listOf(decrypt(updated)))
     }
 
