@@ -1,6 +1,6 @@
 {
   "name": "ryzikchat-server",
-  "version": "0.7.6",
+  "version": "0.7.7",
   "description": "Собственный сервер RyzikChat: REST API + WebSocket",
   "type": "module",
   "main": "src/index.js",
@@ -10,7 +10,8 @@
   "scripts": {
     "start": "node src/run.js",
     "test": "node --test test/*.test.js",
-    "serve": "node src/index.js"
+    "serve": "node src/index.js",
+    "fuzz": "node test/fuzz.mjs"
   },
   "dependencies": {
     "express": "^4.21.2",

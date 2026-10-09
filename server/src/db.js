@@ -229,6 +229,8 @@ function migrate(db) {
   }
   if (!cols('chats').includes('wallpaper_file_id')) db.exec('ALTER TABLE chats ADD COLUMN wallpaper_file_id TEXT');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS chats_invite_code ON chats(invite_code)');
+  // Поиск повторной отправки сообщения по clientId.
+  db.exec('CREATE INDEX IF NOT EXISTS messages_client ON messages(chat_id, client_id)');
   if (!cols('users').includes('email')) {
     db.exec('ALTER TABLE users ADD COLUMN email TEXT');
     db.exec('ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0');

@@ -352,7 +352,13 @@ data class ServerStatus(
     val error: String? = null,
     val updating: Boolean = false,
     val updatedTo: String? = null,
+    val uptimeSec: Long = 0,
+    val errors: List<ServerErrorEntry> = emptyList(),
 )
+
+/** Ошибка сервера (500) из его журнала: что за запрос и где упало. */
+@Serializable
+data class ServerErrorEntry(val ref: String, val at: Long, val method: String, val path: String, val error: String)
 
 @Serializable
 data class ServerUpdateResult(val updated: Boolean, val version: String, val latest: String? = null, val restarting: Boolean = false)

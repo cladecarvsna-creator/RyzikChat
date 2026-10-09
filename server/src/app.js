@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { tx } from './db.js';
 import { DOCS_HTML } from './docs.js';
+import { checkBody, checkQuery } from './validate.js';
 
 const now = () => Date.now();
 export const SYSTEM_ID = 'ryzikchat-info';
@@ -51,6 +52,27 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: '256kb' }));
+  // Проверка запросов: неверные типы полей — сразу 400 с понятным текстом.
+  app.use('/api', (req, _res, next) => {
+    const bad = checkQuery(req.query) ?? (['POST', 'PUT', 'PATCH'].includes(req.method) && req.is('application/json') ? checkBody(req.body) : null);
+    next(bad ? new HttpError(400, 'bad_request', bad) : undefined);
+  });
+
+  // Последние ошибки сервера: видны админу во вкладке «Сервер», чтобы было понятно, что сломалось.
+  const recentErrors = [];
+  app.locals.recentErrors = recentErrors;
+
+  /** Отдаёт файл; если его нет на диске — 404, а не 500. */
+  function sendStored(res, next, file) {
+    res.sendFile(file, (err) => {
+      if (!err || res.headersSent) return;
+      next(err.code === 'ENOENT' ? new HttpError(404, 'file_missing', 'Файл не найден на сервере') : err);
+    });
+  }
+
+  function safeJson(text) {
+    try { return JSON.parse(text); } catch { return null; }
+  }
 
   // ---------- helpers ----------
 
@@ -70,7 +92,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
       isPremium: hasPremium(row),
       // Оформление профиля и эмодзи-статус — возможности Премиума.
       emojiStatus: hasPremium(row) ? row.emoji_status ?? null : null,
-      profileStyle: hasPremium(row) && row.profile_style ? JSON.parse(row.profile_style) : null,
+      profileStyle: hasPremium(row) && row.profile_style ? safeJson(row.profile_style) : null,
       // Сколько FLUX стоит написать этому человеку, если вы не у него в контактах.
       messagePrice: row.message_price ?? 0,
       callPrivacy: row.call_privacy ?? 'all',
@@ -521,7 +543,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
 
   // Аватарки и обложки профилей видны всем (как имя), поэтому отдаём их без токена:
   // так их может загрузить любой загрузчик картинок. Другие файлы — только после входа.
-  app.get('/api/avatars/:id', (req, res) => {
+  app.get('/api/avatars/:id', (req, res, next) => {
     const id = String(req.params.id);
     const used = db.prepare(`SELECT 1 FROM users WHERE avatar_file_id = ? UNION ALL SELECT 1 FROM chats WHERE avatar_file_id = ? OR wallpaper_file_id = ?
       UNION ALL SELECT 1 FROM stickers WHERE file_id = ? UNION ALL SELECT 1 FROM gift_items WHERE file_id = ? LIMIT 1`).get(id, id, id, id, id) ||
@@ -530,7 +552,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     if (!row) throw new HttpError(404, 'file_not_found', 'Файл не найден');
     res.type(row.mime);
     res.set('Cache-Control', 'public, max-age=31536000, immutable');
-    res.sendFile(path.join(filesDir, row.id));
+    sendStored(res, next, path.join(filesDir, row.id));
   });
 
   app.use('/api', auth);
@@ -749,7 +771,8 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     if (other === req.userId) {
       const saved = db.prepare(`SELECT c.id FROM chats c JOIN chat_members m ON m.chat_id = c.id
         WHERE c.type = 'saved' AND m.user_id = ?`).get(req.userId);
-      return res.json(chatView(saved.id, req.userId));
+      const savedId = saved?.id ?? createChat({ type: 'saved', title: 'Избранное', createdBy: req.userId, members: [req.userId] });
+      return res.json(chatView(savedId, req.userId));
     }
     if (!getUserRow.get(other)) throw new HttpError(404, 'user_not_found', 'Пользователь не найден');
     const key = [req.userId, other].sort().join(':');
@@ -1032,6 +1055,11 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     if (typeof payload !== 'string' || payload.length > MAX_PAYLOAD) {
       throw new HttpError(400, 'bad_payload', 'Пустое или слишком большое сообщение');
     }
+    // Повтор того же сообщения (сеть оборвалась, приложение отправило ещё раз) — не дублируем.
+    if (clientId) {
+      const dup = db.prepare('SELECT * FROM messages WHERE chat_id = ? AND sender_id = ? AND client_id = ?').get(target.id, req.userId, clientId);
+      if (dup) return res.status(200).json(publicMessage(dup));
+    }
     const msg = tx(db, () => {
       if (paid) {
         moveFlux(req.userId, -paid.price, 'paid_message', `Сообщение для @${paid.to.username}`);
@@ -1129,12 +1157,12 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     res.status(201).json({ id, size: req.file.size, mime });
   });
 
-  app.get('/api/files/:id', (req, res) => {
+  app.get('/api/files/:id', (req, res, next) => {
     const row = db.prepare('SELECT * FROM files WHERE id = ?').get(req.params.id);
     if (!row) throw new HttpError(404, 'file_not_found', 'Файл не найден');
     res.type(row.mime);
     res.set('Cache-Control', 'private, max-age=31536000, immutable');
-    res.sendFile(path.join(filesDir, row.id));
+    sendStored(res, next, path.join(filesDir, row.id));
   });
 
   // ---------- стикеры ----------
@@ -1426,7 +1454,8 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
   // Самообновление сервера: состояние и «обновить сейчас».
   app.get('/api/admin/server', adminOnly, (_req, res) => {
     const u = app.locals.selfUpdater;
-    res.json({ version: serverVersion(), autoUpdate: process.env.AUTO_UPDATE !== 'off', supervised: process.env.RYZIK_SUPERVISED === '1', ...(u?.status ?? {}) });
+    res.json({ version: serverVersion(), autoUpdate: process.env.AUTO_UPDATE !== 'off', supervised: process.env.RYZIK_SUPERVISED === '1', ...(u?.status ?? {}),
+      uptimeSec: Math.round(process.uptime()), errors: recentErrors });
   });
   app.post('/api/admin/server/update', adminOnly, async (_req, res, next) => {
     try {
@@ -1668,12 +1697,20 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
   app.use('/api', (_req, _res, next) => next(new HttpError(404, 'not_found', 'Нет такого метода')));
 
   // eslint-disable-next-line no-unused-vars
-  app.use((err, _req, res, _next) => {
+  app.use((err, req, res, _next) => {
+    if (res.headersSent) return res.end();
     if (err instanceof HttpError) return res.status(err.status).json({ error: err.code, message: err.message });
     if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'bad_json', message: 'Некорректный JSON' });
-    if (err?.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'too_large', message: 'Файл слишком большой' });
-    console.error(err);
-    res.status(500).json({ error: 'internal', message: 'Ошибка сервера' });
+    if (err?.type === 'entity.too.large' || err?.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'too_large', message: 'Слишком большой запрос или файл' });
+    if (err?.code?.startsWith?.('LIMIT_')) return res.status(400).json({ error: 'bad_upload', message: 'Неверная загрузка файла' });
+    // Ошибки express и body-parser с кодом 4xx (например, неверная кодировка) — это ошибки запроса.
+    const status = Number(err?.status ?? err?.statusCode);
+    if (status >= 400 && status < 500) return res.status(status).json({ error: 'bad_request', message: 'Неверный запрос' });
+    const ref = crypto.randomBytes(3).toString('hex');
+    console.error(`[${ref}] ${req.method} ${req.originalUrl.split('?')[0]}:`, err);
+    recentErrors.unshift({ ref, at: now(), method: req.method, path: req.originalUrl.split('?')[0], error: String(err?.stack ?? err).split('\n').slice(0, 3).join(' ').slice(0, 400) });
+    recentErrors.length = Math.min(recentErrors.length, 30);
+    res.status(500).json({ error: 'internal', message: `Ошибка сервера (код ${ref}). Мы уже знаем о ней.` });
   });
 
   // Нужен realtime.js, чтобы собирать события про чат.

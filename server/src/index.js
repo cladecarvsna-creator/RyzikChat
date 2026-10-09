@@ -71,6 +71,9 @@ export function resolveDataDir(env = process.env) {
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
 if (isMain) {
+  // Одна непойманная ошибка не должна ронять сервер для всех: пишем её в лог и работаем дальше.
+  process.on('uncaughtException', (e) => console.error('Непойманная ошибка:', e));
+  process.on('unhandledRejection', (e) => console.error('Необработанный промис:', e));
   const port = Number(process.env.PORT ?? 8080);
   const dataDir = resolveDataDir();
   const adminUsernames = (process.env.ADMIN_USERNAMES ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);

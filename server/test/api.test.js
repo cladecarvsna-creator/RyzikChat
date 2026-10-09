@@ -526,3 +526,40 @@ test('папка данных: рядом с сервером (ISO/data), DATA_D
   const r = resolveDataDir({});
   assert.ok(r === path.resolve(root, '..', 'data') || r.endsWith(path.join('server', 'data')) || r === path.resolve('data'));
 });
+
+test('проверка запросов, пропавшие файлы, повтор отправки и кривые WebSocket-сообщения', async () => {
+  const u = await reg('validator');
+  const v = await reg('validpeer');
+  const t = u.body.token;
+  const bad = await api('POST', '/api/chats/group', { title: 'g', memberIds: 'x' }, t);
+  assert.equal(bad.status, 400);
+  assert.match(bad.body.message, /memberIds/);
+  assert.equal((await api('PATCH', '/api/me', { displayName: ['x'] }, t)).status, 400);
+  assert.equal((await api('GET', '/api/users/search?q[]=a&q[]=b', null, t)).status, 400);
+  const raw = await fetch(base + '/api/chats/group', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t}` }, body: '[1,2]' });
+  assert.equal(raw.status, 400);
+
+  // Повтор с тем же clientId не создаёт второе сообщение.
+  const dm = (await api('POST', '/api/chats/direct', { userId: v.body.user.id }, t)).body;
+  const m1 = await api('POST', `/api/chats/${dm.id}/messages`, { type: 'text', payload: 'p', clientId: 'same' }, t);
+  const m2 = await api('POST', `/api/chats/${dm.id}/messages`, { type: 'text', payload: 'p', clientId: 'same' }, t);
+  assert.equal(m1.status, 201);
+  assert.equal(m2.body.id, m1.body.id);
+  assert.equal((await api('POST', `/api/chats/${dm.id}/messages`, { type: 'text', payload: 'p', replyTo: { x: 1 } }, t)).status, 400);
+
+  // Файл есть в базе, но пропал с диска: 404, а не 500.
+  const form = new FormData();
+  form.append('file', new Blob([Buffer.from('hello')], { type: 'text/plain' }), 'a.txt');
+  const up = await (await fetch(base + '/api/files', { method: 'POST', headers: { authorization: `Bearer ${t}` }, body: form })).json();
+  fs.rmSync(path.join(dir, 'files', up.id));
+  const missing = await fetch(`${base}/api/files/${up.id}`, { headers: { authorization: `Bearer ${t}` } });
+  assert.equal(missing.status, 404);
+
+  // Сервер переживает мусор в WebSocket и продолжает отвечать.
+  const ws = new WebSocket(`${base.replace('http', 'ws')}/ws?token=${t}`);
+  await new Promise((r) => ws.on('open', r));
+  for (const junk of ['null', '5', '"x"', '[]', '{"type":"typing","chatId":5}', '{"type":"call.signal","to":"x","data":null}']) ws.send(junk);
+  await new Promise((r) => setTimeout(r, 200));
+  ws.close();
+  assert.equal((await api('GET', '/api/me', null, t)).status, 200);
+});

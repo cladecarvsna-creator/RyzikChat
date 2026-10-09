@@ -44,7 +44,7 @@ export class Hub {
       this.pendingCalls.delete(userId);
       return;
     }
-    for (const data of p.signals) ws.send(JSON.stringify({ type: 'call.signal', from: p.from, data }));
+    for (const data of p.signals) safeSend(ws, JSON.stringify({ type: 'call.signal', from: p.from, data }));
   }
 
   isOnline(userId) {
@@ -69,14 +69,14 @@ export class Hub {
     const data = JSON.stringify(event);
     for (const id of new Set(userIds)) {
       for (const ws of this.sockets.get(id) ?? []) {
-        if (ws.readyState === ws.OPEN) ws.send(data);
+        safeSend(ws, data);
       }
     }
   }
 
   /** Закрывает все подключения пользователя (бан): клиент увидит код 4003. */
   disconnectUser(userId, reason = 'banned') {
-    for (const ws of this.sockets.get(userId) ?? []) ws.close(4003, reason);
+    for (const ws of this.sockets.get(userId) ?? []) { try { ws.close(4003, reason); } catch { ws.terminate(); } }
   }
 
   /** Событие про пользователя: ему самому и всем, с кем у него есть общий чат. */
@@ -89,67 +89,89 @@ export class Hub {
     this.locals = locals;
     const wss = new WebSocketServer({ server, path: '/ws' });
 
+    // Без обработчиков 'error' любая сетевая ошибка сокета роняет весь сервер.
+    wss.on('error', (e) => console.warn(`WebSocket-сервер: ${e.message}`));
     wss.on('connection', (ws, req) => {
-      const url = new URL(req.url, 'http://localhost');
-      const userId = locals.resolveToken(url.searchParams.get('token') ?? '');
-      if (!userId) {
-        ws.close(4001, 'unauthorized');
-        return;
+      ws.on('error', () => ws.terminate());
+      try { this.onConnection(ws, req, locals); } catch (e) {
+        console.error('WebSocket: ошибка подключения', e);
+        try { ws.close(1011, 'error'); } catch { ws.terminate(); }
       }
-      const wasOnline = this.isOnline(userId);
-      if (!this.sockets.has(userId)) this.sockets.set(userId, new Set());
-      ws.active = url.searchParams.get('active') !== '0';
-      this.sockets.get(userId).add(ws);
-      ws.isAlive = true;
-      if (ws.active) locals.touchLastSeen(userId);
-      this.presenceChanged(userId, wasOnline);
-      this.replayPendingCall(userId, ws);
-
-      ws.on('pong', () => { ws.isAlive = true; });
-      ws.on('message', (raw) => {
-        let msg;
-        try { msg = JSON.parse(String(raw)); } catch { return; }
-        if (msg.type === 'typing' && typeof msg.chatId === 'string' && locals.isMember(msg.chatId, userId)) {
-          const others = locals.memberIds(msg.chatId).filter((id) => id !== userId);
-          this.sendToUsers(others, { type: 'typing', chatId: msg.chatId, userId, action: msg.action ?? 'typing' });
-        } else if (msg.type === 'call.signal' && typeof msg.to === 'string' && msg.data && typeof msg.data === 'object') {
-          // Сигналы WebRTC (offer/answer/ice/hangup…) пересылаем, только если у людей есть общий чат.
-          if (msg.data.kind === 'offer' && msg.to !== userId && locals.canCall && !locals.canCall(userId, msg.to)) {
-            ws.send(JSON.stringify({ type: 'call.signal', from: msg.to, data: { kind: 'forbidden', callId: msg.data.callId } }));
-          } else if (msg.to !== userId && locals.sharedChatPeers(userId).includes(msg.to) && !locals.isBlocked(userId, msg.to)) {
-            const delivered = this.isConnected(msg.to);
-            this.trackCallSignal(userId, msg.to, msg.data);
-            this.sendToUsers([msg.to], { type: 'call.signal', from: userId, data: msg.data });
-            if (!delivered && msg.data.kind === 'offer') {
-              // Не сбрасываем звонок: он дойдёт, когда собеседник появится в сети.
-              ws.send(JSON.stringify({ type: 'call.signal', from: msg.to, data: { kind: 'waiting', callId: msg.data.callId } }));
-            }
-          }
-        } else if (msg.type === 'presence') {
-          const was = this.isOnline(userId);
-          ws.active = !!msg.active;
-          this.presenceChanged(userId, was);
-        } else if (msg.type === 'ping') {
-          ws.send(JSON.stringify({ type: 'pong' }));
-        }
-      });
-      ws.on('close', () => {
-        const was = this.isOnline(userId);
-        const set = this.sockets.get(userId);
-        set?.delete(ws);
-        if (set && set.size === 0) this.sockets.delete(userId);
-        this.presenceChanged(userId, was);
-      });
     });
 
     const interval = setInterval(() => {
       for (const ws of wss.clients) {
         if (!ws.isAlive) { ws.terminate(); continue; }
         ws.isAlive = false;
-        ws.ping();
+        try { ws.ping(); } catch { ws.terminate(); }
       }
     }, 30_000);
     wss.on('close', () => clearInterval(interval));
     return wss;
   }
+
+  onConnection(ws, req, locals) {
+    const url = new URL(req.url, 'http://localhost');
+    const userId = locals.resolveToken(url.searchParams.get('token') ?? '');
+    if (!userId) {
+      ws.close(4001, 'unauthorized');
+      return;
+    }
+    const wasOnline = this.isOnline(userId);
+    if (!this.sockets.has(userId)) this.sockets.set(userId, new Set());
+    ws.active = url.searchParams.get('active') !== '0';
+    this.sockets.get(userId).add(ws);
+    ws.isAlive = true;
+    if (ws.active) locals.touchLastSeen(userId);
+    this.presenceChanged(userId, wasOnline);
+    this.replayPendingCall(userId, ws);
+
+    ws.on('pong', () => { ws.isAlive = true; });
+    ws.on('message', (raw) => {
+      let msg;
+      try { msg = JSON.parse(String(raw)); } catch { return; }
+      if (!msg || typeof msg !== 'object') return;
+      try { this.onMessage(ws, userId, msg, locals); } catch (e) { console.error('WebSocket: ошибка обработки', e); }
+    });
+    ws.on('close', () => {
+      try {
+        const was = this.isOnline(userId);
+        const set = this.sockets.get(userId);
+        set?.delete(ws);
+        if (set && set.size === 0) this.sockets.delete(userId);
+        this.presenceChanged(userId, was);
+      } catch (e) { console.error('WebSocket: ошибка при отключении', e); }
+    });
+  }
+
+  onMessage(ws, userId, msg, locals) {
+    if (msg.type === 'typing' && typeof msg.chatId === 'string' && locals.isMember(msg.chatId, userId)) {
+      const others = locals.memberIds(msg.chatId).filter((id) => id !== userId);
+      this.sendToUsers(others, { type: 'typing', chatId: msg.chatId, userId, action: msg.action ?? 'typing' });
+    } else if (msg.type === 'call.signal' && typeof msg.to === 'string' && msg.data && typeof msg.data === 'object') {
+      // Сигналы WebRTC (offer/answer/ice/hangup…) пересылаем, только если у людей есть общий чат.
+      if (msg.data.kind === 'offer' && msg.to !== userId && locals.canCall && !locals.canCall(userId, msg.to)) {
+        safeSend(ws, JSON.stringify({ type: 'call.signal', from: msg.to, data: { kind: 'forbidden', callId: msg.data.callId } }));
+      } else if (msg.to !== userId && locals.sharedChatPeers(userId).includes(msg.to) && !locals.isBlocked(userId, msg.to)) {
+        const delivered = this.isConnected(msg.to);
+        this.trackCallSignal(userId, msg.to, msg.data);
+        this.sendToUsers([msg.to], { type: 'call.signal', from: userId, data: msg.data });
+        if (!delivered && msg.data.kind === 'offer') {
+          // Не сбрасываем звонок: он дойдёт, когда собеседник появится в сети.
+          safeSend(ws, JSON.stringify({ type: 'call.signal', from: msg.to, data: { kind: 'waiting', callId: msg.data.callId } }));
+        }
+      }
+    } else if (msg.type === 'presence') {
+      const was = this.isOnline(userId);
+      ws.active = !!msg.active;
+      this.presenceChanged(userId, was);
+    } else if (msg.type === 'ping') {
+      safeSend(ws, JSON.stringify({ type: 'pong' }));
+    }
+  }
+}
+
+function safeSend(ws, data) {
+  if (ws.readyState !== ws.OPEN) return;
+  try { ws.send(data); } catch { /* сокет уже закрывается */ }
 }

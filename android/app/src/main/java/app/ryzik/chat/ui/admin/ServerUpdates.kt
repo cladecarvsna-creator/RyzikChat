@@ -21,6 +21,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -110,6 +111,20 @@ fun ServerUpdates(modifier: Modifier) {
                 ) {
                     if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                     else Text("Проверить и обновить сейчас")
+                }
+            }
+        }
+        status?.let { s ->
+            Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Ошибки сервера", style = MaterialTheme.typography.titleMedium)
+                    Text("Работает без перезапуска: ${s.uptimeSec / 3600} ч ${s.uptimeSec % 3600 / 60} мин", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (s.errors.isEmpty()) Text("С момента запуска ошибок не было", style = MaterialTheme.typography.bodyMedium)
+                    for (e in s.errors) Column {
+                        Text("${formatListTime(e.at)} · ${e.method} ${e.path} · код ${e.ref}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
+                        Text(e.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    TextButton(onClick = { reload++ }) { Text("Обновить") }
                 }
             }
         }

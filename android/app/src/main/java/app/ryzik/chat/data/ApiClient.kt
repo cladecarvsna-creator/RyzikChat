@@ -24,6 +24,10 @@ import java.util.concurrent.TimeUnit
 
 class ApiException(val status: Int, val code: String, message: String) : IOException(message)
 
+/** Временная ошибка: сервер перезапускается или ngrok не достучался до него. */
+private fun isTemporary(r: okhttp3.Response): Boolean =
+    r.code in 502..504 || r.header("ngrok-error-code") != null && r.code >= 400
+
 val AppJson = Json {
     ignoreUnknownKeys = true
     explicitNulls = false
@@ -39,6 +43,22 @@ class ApiClient(
         .pingInterval(25, TimeUnit.SECONDS)
         // Сервер работает через ngrok: этот заголовок убирает его страницу-предупреждение.
         .addInterceptor { chain -> chain.proceed(chain.request().newBuilder().header("ngrok-skip-browser-warning", "1").build()) }
+        // Сервер перезапускается (обновление) или ngrok на миг потерял связь: повторяем чтение ещё пару раз.
+        .addInterceptor { chain ->
+            val req = chain.request()
+            if (req.method != "GET" || req.header("Upgrade") != null) return@addInterceptor chain.proceed(req)
+            repeat(2) { attempt ->
+                try {
+                    val response = chain.proceed(req)
+                    if (!isTemporary(response)) return@addInterceptor response
+                    response.close()
+                } catch (e: IOException) {
+                    if (chain.call().isCanceled()) throw e
+                }
+                Thread.sleep(1000L * (attempt + 1))
+            }
+            chain.proceed(req)
+        }
         .build(),
 ) {
     @Volatile var baseUrl: String = ""
@@ -58,7 +78,14 @@ class ApiClient(
             val body = it.body?.string().orEmpty()
             if (!it.isSuccessful) {
                 val err = runCatching { AppJson.decodeFromString(ApiError.serializer(), body) }.getOrNull()
-                throw ApiException(it.code, err?.error ?: "http_${it.code}", err?.message?.ifBlank { null } ?: "Ошибка сети (${it.code})")
+                // Ответ не от нашего сервера (ngrok, прокси): объясняем, что случилось, а не просто код.
+                val fallback = when {
+                    it.header("ngrok-error-code") == "ERR_NGROK_3200" || it.code == 404 && err == null -> "Сервер сейчас выключен. Попробуйте чуть позже"
+                    it.code in 502..504 -> "Сервер перезапускается. Попробуйте через минуту"
+                    it.code >= 500 -> "Ошибка на сервере (${it.code})"
+                    else -> "Ошибка сети (${it.code})"
+                }
+                throw ApiException(it.code, err?.error ?: "http_${it.code}", err?.message?.ifBlank { null } ?: fallback)
             }
             body
         }
