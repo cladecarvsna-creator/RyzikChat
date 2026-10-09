@@ -128,7 +128,7 @@ enum class SettingsSection(val title: String, val subtitle: String, val icon: Im
     Notifications("Уведомления", "Сообщения, звонки, работа в фоне", Icons.Rounded.Notifications, SettingsColors.Red),
     Privacy("Конфиденциальность", "Шифрование, сеансы, пароль", Icons.Rounded.Security, SettingsColors.Green),
     Data("Данные и память", "Автозагрузка, кэш", Icons.Rounded.Storage, SettingsColors.Teal),
-    Server("Сервер", "Адрес вашего сервера RyzikChat", Icons.Rounded.Dns, SettingsColors.Orange),
+    Server("Сервер", "Основной сервер RyzikChat", Icons.Rounded.Dns, SettingsColors.Orange),
     Api("Открытый API", "Для своих приложений и других устройств", Icons.Rounded.Code, SettingsColors.Slate),
     Updates("Обновления", "Новые версии приходят прямо в приложение", Icons.Rounded.SystemUpdate, SettingsColors.Cyan),
     About("О приложении", "Версия, правила", Icons.Rounded.Info, SettingsColors.Gray),
@@ -880,28 +880,18 @@ private fun DataSettings(s: AppSettings, update: ((AppSettings) -> AppSettings) 
 private fun ServerSettings() {
     val repo = RyzikApp.instance.repo
     val scope = rememberCoroutineScope()
-    var url by remember { mutableStateOf("") }
     var status by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) { url = repo.prefs.session.first().serverUrl }
     Column(Modifier.padding(16.dp)) {
         Text(
-            "RyzikChat работает через собственный API. Если вы перенесли сервер, укажите новый адрес. Аккаунт и ключи останутся теми же только на том же сервере.",
+            "Все работают на основном сервере RyzikChat. Адрес встроен в приложение и не меняется.",
             style = MaterialTheme.typography.bodyMedium,
         )
         Spacer(Modifier.height(12.dp))
-        OutlinedTextField(url, { url = it.trim() }, label = { Text("Адрес сервера") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Text(app.ryzik.chat.BuildConfig.DEFAULT_SERVER, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(8.dp))
-        Row {
-            TextButton(onClick = {
-                scope.launch {
-                    val old = repo.api.baseUrl
-                    repo.api.baseUrl = url.trimEnd('/')
-                    status = if (repo.checkServer()) "Сервер отвечает" else "Сервер не отвечает"
-                    repo.api.baseUrl = old
-                }
-            }) { Text("Проверить") }
-            TextButton(onClick = { scope.launch { repo.setServer(url); status = "Сохранено" } }) { Text("Сохранить") }
-        }
+        TextButton(onClick = {
+            scope.launch { status = if (repo.checkServer()) "Сервер отвечает" else "Сервер не отвечает" }
+        }) { Text("Проверить связь") }
         status?.let { Text(it) }
     }
 }

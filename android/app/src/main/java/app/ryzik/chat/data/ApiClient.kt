@@ -37,6 +37,8 @@ class ApiClient(
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(5, TimeUnit.MINUTES)
         .pingInterval(25, TimeUnit.SECONDS)
+        // Сервер работает через ngrok: этот заголовок убирает его страницу-предупреждение.
+        .addInterceptor { chain -> chain.proceed(chain.request().newBuilder().header("ngrok-skip-browser-warning", "1").build()) }
         .build(),
 ) {
     @Volatile var baseUrl: String = ""

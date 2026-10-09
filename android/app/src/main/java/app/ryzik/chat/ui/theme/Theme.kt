@@ -196,7 +196,14 @@ fun RyzikTheme(settings: AppSettings, content: @Composable () -> Unit) {
         }
     }
 
-    MaterialTheme(colorScheme = animated, typography = AppTypography, shapes = AppShapes, content = content)
+    MaterialTheme(colorScheme = animated, typography = AppTypography, shapes = AppShapes) {
+        // Цвет текста по умолчанию берём из темы: иначе текст вне Surface/Scaffold
+        // (экран входа, приветствие) остаётся чёрным даже в тёмной теме.
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.material3.LocalContentColor provides animated.onSurface,
+            content = content,
+        )
+    }
 }
 
 /** Плавная смена цветов при переключении темы. */

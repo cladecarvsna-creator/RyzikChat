@@ -84,19 +84,15 @@ fun AuthScreen(onBack: () -> Unit, onOpenTerms: () -> Unit) {
     var password by remember { mutableStateOf("") }
     var password2 by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
-    var server by remember { mutableStateOf("") }
-    var showServer by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var codeStep by remember { mutableStateOf<app.ryzik.chat.data.LoginResponse?>(null) }
 
-    LaunchedEffect(Unit) { server = repo.prefs.session.first().serverUrl }
 
     fun validate(): String? = when {
         !Regex("^[a-zA-Z0-9_]{3,32}$").matches(username) -> "Имя пользователя: 3–32 символа, латиница, цифры и _"
         password.length < 8 -> "Пароль — минимум 8 символов"
         register && password != password2 -> "Пароли не совпадают"
-        server.isBlank() -> "Укажите адрес сервера"
         else -> null
     }
 
@@ -106,7 +102,7 @@ fun AuthScreen(onBack: () -> Unit, onOpenTerms: () -> Unit) {
         loading = true
         scope.launch {
             try {
-                repo.setServer(server)
+                repo.setServer(app.ryzik.chat.BuildConfig.DEFAULT_SERVER)
                 if (register) repo.register(username, displayName.ifBlank { username }, password)
                 else codeStep = repo.login(username, password)
             } catch (e: Exception) {
@@ -218,32 +214,6 @@ fun AuthScreen(onBack: () -> Unit, onOpenTerms: () -> Unit) {
         }
 
         Spacer(Modifier.height(8.dp))
-        TextButton(onClick = { showServer = !showServer }) {
-            Icon(Icons.Rounded.Dns, null, Modifier.size(18.dp))
-            Spacer(Modifier.size(8.dp))
-            Text("Сервер")
-            Icon(if (showServer) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null)
-        }
-        AnimatedVisibility(showServer, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-            ElevatedCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp)) {
-                    Text(
-                        "RyzikChat работает на собственном сервере. Укажите его адрес, например http://192.168.1.10:8080",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = server,
-                        onValueChange = { server = it.trim() },
-                        singleLine = true,
-                        label = { Text("Адрес сервера") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
-        }
-
         AnimatedVisibility(error != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
             Text(
                 error.orEmpty(),

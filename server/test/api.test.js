@@ -65,7 +65,12 @@ test('регистрация, чаты, сообщения, бейджи, websoc
   assert.equal((await api('POST', '/api/auth/login', { username: 'bob', password: 'nope' })).status, 401);
 
   const chatsA = await api('GET', '/api/chats', null, a.body.token);
-  assert.deepEqual(chatsA.body.map((c) => c.type).sort(), ['channel', 'saved']);
+  // Избранное, RyzikChat Info и общая группа «RyzikChat (Обсуждение)».
+  assert.deepEqual(chatsA.body.map((c) => c.type).sort(), ['channel', 'group', 'saved']);
+  const discussion = chatsA.body.find((c) => c.type === 'group');
+  assert.equal(discussion.title, 'RyzikChat (Обсуждение)');
+  assert.ok(discussion.members.length >= 2, 'в общей группе все пользователи');
+  assert.equal((await api('DELETE', `/api/chats/${discussion.id}/members/${a.body.user.id}`, null, a.body.token)).body.error, 'discussion_leave');
   const infoA = chatsA.body.find((c) => c.isService);
   assert.equal(infoA.title, 'RyzikChat Info');
   assert.equal(infoA.pinned, true);

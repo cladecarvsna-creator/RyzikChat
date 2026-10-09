@@ -208,8 +208,9 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
 
     private fun deviceName() = "${Build.MANUFACTURER} ${Build.MODEL}".trim()
 
-    suspend fun setServer(url: String) {
-        val clean = url.trim().trimEnd('/')
+    suspend fun setServer(@Suppress("UNUSED_PARAMETER") url: String) {
+        // Сервер один на всех и встроен в приложение.
+        val clean = app.ryzik.chat.BuildConfig.DEFAULT_SERVER.trimEnd('/')
         prefs.setServer(clean)
         api.baseUrl = clean
     }

@@ -183,7 +183,7 @@ class Prefs(private val context: Context) {
 
     val session: Flow<StoredSession> = context.store.data.map { p ->
         StoredSession(
-            serverUrl = p[K.server] ?: BuildConfig.DEFAULT_SERVER,
+            serverUrl = BuildConfig.DEFAULT_SERVER,
             token = p[K.token],
             userId = p[K.userId],
             username = p[K.username],
@@ -196,13 +196,15 @@ class Prefs(private val context: Context) {
     }
 
     private fun readAccounts(p: Preferences): List<SavedAccount> {
+        // Сервер у всех один и сменить его нельзя: старые адреса из настроек не используем.
         val list = p[K.accounts]?.let { runCatching { AppJson.decodeFromString(ListSerializer(SavedAccount.serializer()), it) }.getOrNull() }.orEmpty()
+            .map { it.copy(serverUrl = BuildConfig.DEFAULT_SERVER) }
         // Аккаунт из прошлой версии приложения, где был только один вход
         val token = p[K.token]
         val userId = p[K.userId]
         val key = p[K.privKey]
         if (token != null && userId != null && key != null && list.none { it.userId == userId }) {
-            return listOf(SavedAccount(p[K.server] ?: BuildConfig.DEFAULT_SERVER, token, userId, p[K.username] ?: "", p[K.username] ?: "", null, key)) + list
+            return listOf(SavedAccount(BuildConfig.DEFAULT_SERVER, token, userId, p[K.username] ?: "", p[K.username] ?: "", null, key)) + list
         }
         return list
     }
@@ -215,7 +217,7 @@ class Prefs(private val context: Context) {
 
     suspend fun saveSession(token: String, userId: String, username: String, wrappedPrivateKey: String) {
         context.store.edit {
-            val server = it[K.server] ?: BuildConfig.DEFAULT_SERVER
+            val server = BuildConfig.DEFAULT_SERVER
             val old = readAccounts(it)
             val prev = old.firstOrNull { a -> a.userId == userId }
             val acc = SavedAccount(server, token, userId, username, prev?.displayName ?: username, prev?.avatarFileId, wrappedPrivateKey)

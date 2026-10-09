@@ -263,6 +263,39 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
   }
   const getMessageRowById = db.prepare('SELECT * FROM messages WHERE id = ?');
 
+  // ---------- общая группа «RyzikChat (Обсуждение)» ----------
+  // Все пользователи состоят в ней: существующие добавляются, когда группа создаётся, новые — при регистрации.
+  const DISCUSSION_KEY = 'discussion';
+  const discussionId = () => db.prepare('SELECT id FROM chats WHERE direct_key = ?').get(DISCUSSION_KEY)?.id ?? null;
+
+  function ensureDiscussion() {
+    const existing = discussionId();
+    if (existing) return existing;
+    const owner = db.prepare('SELECT id FROM users WHERE id != ? ORDER BY is_admin DESC, created_at LIMIT 1').get(SYSTEM_ID);
+    if (!owner) return null;
+    const users = db.prepare('SELECT id, is_admin FROM users WHERE id != ?').all(SYSTEM_ID);
+    return tx(db, () => {
+      const id = createChat({
+        type: 'group', title: 'RyzikChat (Обсуждение)', description: 'Общий чат всех пользователей RyzikChat',
+        createdBy: owner.id, members: users.map((u) => u.id), directKey: DISCUSSION_KEY, isPublic: true,
+      });
+      // Администраторы приложения — администраторы группы.
+      const promote = db.prepare("UPDATE chat_members SET role = 'admin' WHERE chat_id = ? AND user_id = ? AND role = 'member'");
+      for (const u of users) if (u.is_admin) promote.run(id, u.id);
+      return id;
+    });
+  }
+
+  function joinDiscussion(userId) {
+    const id = ensureDiscussion();
+    if (!id) return;
+    db.prepare("INSERT OR IGNORE INTO chat_members (chat_id, user_id, role, joined_at) VALUES (?, ?, 'member', ?)").run(id, userId, now());
+    const others = memberIds(id).filter((m) => m !== userId);
+    hub.sendToUsers([userId], { type: 'chat.new', chat: chatView(id, userId) });
+    hub.sendToUsers(others, { type: 'chat.updated', chatId: id });
+  }
+  ensureDiscussion();
+
   /** Личный чат двух людей; создаётся, если его ещё нет. */
   function directChatId(a, b) {
     const key = [a, b].sort().join(':');
@@ -348,7 +381,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     return token;
   }
 
-  app.get('/api/health', (_req, res) => res.json({ ok: true, name: 'RyzikChat', version: '0.7.2', apiVersion: 1 }));
+  app.get('/api/health', (_req, res) => res.json({ ok: true, name: 'RyzikChat', version: '0.7.3', apiVersion: 1 }));
 
   // Открытое описание API — чтобы можно было написать клиент под любое устройство.
   app.get('/api/openapi.json', (_req, res) => res.sendFile(path.join(import.meta.dirname, '..', 'openapi.json')));
@@ -378,6 +411,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
       ensureInfoChat(id);
       return { id, token: createSession(id, device) };
     });
+    joinDiscussion(result.id);
     postInfo(result.id, `Добро пожаловать в RyzikChat!\n\nЭто служебный чат. Сюда приходят уведомления о входах в аккаунт и важные новости. ` +
       'Для защиты включите двухэтапную проверку в настройках конфиденциальности.');
     res.status(201).json({ token: result.token, user: getUser(result.id), encryptedPrivateKey });
@@ -853,6 +887,9 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     const target = req.params.userId;
     if (!['group', 'channel'].includes(chat.type)) throw new HttpError(400, 'not_group', 'Это не группа и не канал');
     if (chat.created_by === SYSTEM_ID) throw new HttpError(400, 'service_chat', 'Служебный чат нельзя покинуть');
+    if (chat.direct_key === DISCUSSION_KEY && target === req.userId) {
+      throw new HttpError(400, 'discussion_leave', 'Из общего чата выйти нельзя, но можно отключить уведомления');
+    }
     if (target !== req.userId && m.role !== 'owner') throw new HttpError(403, 'forbidden', 'Только владелец');
     if (target === req.userId && m.role === 'owner' && chat.type === 'channel') {
       throw new HttpError(400, 'owner_leave', 'Владелец не может покинуть свой канал');
