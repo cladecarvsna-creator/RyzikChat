@@ -753,7 +753,8 @@ fun ChatInfoScreen(
         )
     }
 
-    if (discussionDialog) {
+    val dChat = chat
+    if (discussionDialog && dChat != null) {
         val myGroups = chats.filter { it.type == "group" && (it.myRole == "owner" || it.myRole == "admin") }
         var busy by remember { mutableStateOf(false) }
         fun apply(block: suspend () -> Unit) {
@@ -780,22 +781,22 @@ fun ChatInfoScreen(
                         ListItem(
                             headlineContent = { Text("Создать новую группу", color = MaterialTheme.colorScheme.primary) },
                             leadingContent = { Icon(Icons.Rounded.Add, null, tint = MaterialTheme.colorScheme.primary) },
-                            modifier = Modifier.clickable(enabled = !busy) { apply { repo.createDiscussion(chat) } },
+                            modifier = Modifier.clickable(enabled = !busy) { apply { repo.createDiscussion(dChat) } },
                         )
                     }
                     items(myGroups.size) { i ->
                         val g = myGroups[i]
                         ListItem(
                             headlineContent = { Text(g.title) },
-                            supportingContent = { if (g.id == chat.discussionId) Text("Привязана сейчас", color = MaterialTheme.colorScheme.primary) },
+                            supportingContent = { if (g.id == dChat.discussionId) Text("Привязана сейчас", color = MaterialTheme.colorScheme.primary) },
                             leadingContent = { Avatar(g.title, repo.avatarUrl(g.avatarFileId), 36.dp) },
-                            modifier = Modifier.clickable(enabled = !busy && g.id != chat.discussionId) { apply { repo.setDiscussion(chat.id, g.id) } },
+                            modifier = Modifier.clickable(enabled = !busy && g.id != dChat.discussionId) { apply { repo.setDiscussion(dChat.id, g.id) } },
                         )
                     }
                 }
             },
             confirmButton = {
-                if (chat.discussionId != null) TextButton(enabled = !busy, onClick = { apply { repo.setDiscussion(chat.id, null) } }) {
+                if (dChat.discussionId != null) TextButton(enabled = !busy, onClick = { apply { repo.setDiscussion(dChat.id, null) } }) {
                     Text("Выключить комментарии", color = MaterialTheme.colorScheme.error)
                 }
             },
