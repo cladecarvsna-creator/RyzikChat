@@ -113,6 +113,24 @@ data class AdminChat(
 )
 
 /** Запись журнала модерации. */
+/** Заблокированное устройство (kind = "device") или сеть (kind = "ip"). */
+@Serializable
+data class DeviceBan(
+    val id: String,
+    val kind: String,
+    val value: String,
+    val userId: String? = null,
+    val username: String = "",
+    val reason: String = "",
+    val createdAt: Long = 0,
+)
+
+@Serializable
+data class DeviceBanResult(val user: User, val devices: Int = 0, val ips: Int = 0, val added: Int = 0)
+
+@Serializable
+data class AdminDeleteResult(val ok: Boolean = true, val deletedMessages: Int = 0)
+
 @Serializable
 data class ModerationLogEntry(
     val id: String,

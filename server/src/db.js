@@ -295,6 +295,25 @@ function migrate(db) {
       expires_at INTEGER NOT NULL
     );
   `);
+  // Бан по устройству и сети: откуда входили, и что заблокировано.
+  if (!cols('sessions').includes('device_id')) {
+    db.exec('ALTER TABLE sessions ADD COLUMN device_id TEXT');
+    db.exec('ALTER TABLE sessions ADD COLUMN ip TEXT');
+  }
+  if (!cols('users').includes('last_ip')) {
+    db.exec('ALTER TABLE users ADD COLUMN last_ip TEXT');
+    db.exec('ALTER TABLE users ADD COLUMN last_device_id TEXT');
+  }
+  db.exec(`CREATE TABLE IF NOT EXISTS device_bans (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    value TEXT NOT NULL,
+    user_id TEXT,
+    username TEXT,
+    reason TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    UNIQUE (kind, value)
+  )`);
 }
 
 /** Выполняет fn внутри транзакции. */

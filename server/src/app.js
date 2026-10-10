@@ -411,6 +411,43 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
 
   const sessionStmt = db.prepare('SELECT user_id FROM sessions WHERE token = ?');
 
+  // ---------- бан по устройству и сети ----------
+
+  /** IP клиента: сервер обычно стоит за ngrok, поэтому сначала смотрим X-Forwarded-For. */
+  function clientIp(req) {
+    const fwd = String(req.headers?.['x-forwarded-for'] ?? '').split(',')[0].trim();
+    return (fwd || req.socket?.remoteAddress || '').replace(/^::ffff:/, '').slice(0, 64);
+  }
+  /** Постоянный идентификатор устройства, который присылает приложение. */
+  function clientDevice(req) {
+    return String(req.headers?.['x-device-id'] ?? '').trim().slice(0, 100);
+  }
+  const deviceBanStmt = db.prepare("SELECT * FROM device_bans WHERE (kind = 'device' AND value = ?) OR (kind = 'ip' AND value = ?) LIMIT 1");
+  function deviceBanOf(req) {
+    const ip = clientIp(req), dev = clientDevice(req);
+    if (!ip && !dev) return null;
+    return deviceBanStmt.get(dev || '\u0000', ip || '\u0000') ?? null;
+  }
+  function deviceBannedError(ban) {
+    return new HttpError(403, 'device_banned', 'Вход в RyzikChat с этого устройства или сети заблокирован' + (ban.reason ? `. Причина: ${ban.reason}` : ''));
+  }
+  // Заблокированное устройство или сеть не пускаем никуда: ни войти, ни зарегистрироваться.
+  app.use('/api', (req, _res, next) => {
+    if (req.path === '/health') return next();
+    const ban = deviceBanOf(req);
+    next(ban ? deviceBannedError(ban) : undefined);
+  });
+  // Запоминаем, откуда пользователь заходит, чтобы админ мог забанить устройство и сеть.
+  const seenFrom = new Map();
+  function rememberOrigin(token, userId, req) {
+    const ip = clientIp(req), dev = clientDevice(req), key = ip + '|' + dev;
+    if (seenFrom.get(token) === key) return;
+    if (seenFrom.size > 50_000) seenFrom.clear();
+    seenFrom.set(token, key);
+    db.prepare('UPDATE sessions SET ip = ?, device_id = COALESCE(NULLIF(?, \'\'), device_id) WHERE token = ?').run(ip, dev, token);
+    db.prepare('UPDATE users SET last_ip = ?, last_device_id = COALESCE(NULLIF(?, \'\'), last_device_id) WHERE id = ?').run(ip, dev, userId);
+  }
+
   function auth(req, _res, next) {
     const header = req.get('authorization') ?? '';
     const token = header.startsWith('Bearer ') ? header.slice(7) : req.query.token;
@@ -420,6 +457,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     if (isBannedRow(u)) return next(bannedError(u));
     req.userId = s.user_id;
     req.token = String(token);
+    rememberOrigin(req.token, s.user_id, req);
     next();
   }
 
@@ -433,10 +471,11 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     next();
   }
 
-  function createSession(userId, device) {
+  function createSession(userId, device, req) {
     const token = crypto.randomBytes(32).toString('base64url');
     db.prepare('INSERT INTO sessions (token, user_id, device, created_at) VALUES (?, ?, ?, ?)')
       .run(token, userId, String(device ?? '').slice(0, 100), now());
+    if (req) rememberOrigin(token, userId, req);
     return token;
   }
 
@@ -468,7 +507,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
         .run(id, username, name, hashPassword(password), publicKey, encryptedPrivateKey, isAdmin ? 1 : 0, now(), now());
       createChat({ type: 'saved', title: 'Избранное', createdBy: id, members: [id] });
       ensureInfoChat(id);
-      return { id, token: createSession(id, device) };
+      return { id, token: createSession(id, device, req) };
     });
     joinDiscussion(result.id);
     postInfo(result.id, `Добро пожаловать в RyzikChat!\n\nЭто служебный чат. Сюда приходят уведомления о входах в аккаунт и важные новости. ` +
@@ -490,7 +529,7 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
         .run(id, row.id, '2fa', '', String(device ?? '').slice(0, 100), now() + CODE_TTL_MS);
       return res.json({ need2fa: true, challengeId: id, hint: row.twofa_hint ?? '' });
     }
-    res.json(finishLogin(row, device));
+    res.json(finishLogin(row, device, req));
   });
 
   app.post('/api/auth/login/2fa', (req, res) => {
@@ -507,12 +546,12 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
       throw new HttpError(400, 'bad_2fa', 'Неверный пароль двухэтапной проверки');
     }
     db.prepare('DELETE FROM codes WHERE id = ?').run(id);
-    res.json(finishLogin(user, ch.data));
+    res.json(finishLogin(user, ch.data, req));
   });
 
   /** Создаёт сеанс и сообщает в RyzikChat Info о входе с нового устройства. */
-  function finishLogin(row, device) {
-    const token = createSession(row.id, device);
+  function finishLogin(row, device, req) {
+    const token = createSession(row.id, device, req);
     postInfo(row.id, `Новый вход в ваш аккаунт с устройства «${String(device || 'неизвестно').slice(0, 60)}». ` +
       'Если это были не вы, завершите чужие сеансы и смените пароль в настройках конфиденциальности.');
     return { token, user: publicUser(row), encryptedPrivateKey: row.encrypted_private_key };
@@ -1143,34 +1182,58 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     hub.sendToUsers(members, { type: 'chat.removed', chatId: chat.id });
   }
 
+  /**
+   * Удаляет пользователя: его личные чаты, членство в группах (свои группы и каналы передаются
+   * наследнику) и сам аккаунт. wipeMessages — ещё и стереть все его сообщения в группах и каналах.
+   */
+  function removeUser(userId, { wipeMessages = false } = {}) {
+    const peers = app.locals.sharedChatPeers(userId);
+    const wiped = [];
+    tx(db, () => {
+      if (wipeMessages) {
+        const rows = db.prepare('SELECT id, chat_id FROM messages WHERE sender_id = ? AND deleted = 0').all(userId);
+        db.prepare("UPDATE messages SET deleted = 1, payload = '' WHERE sender_id = ?").run(userId);
+        db.prepare('DELETE FROM reactions WHERE message_id IN (SELECT id FROM messages WHERE sender_id = ?)').run(userId);
+        wiped.push(...rows);
+      }
+      const mine = db.prepare(`SELECT c.*, m.role FROM chats c JOIN chat_members m ON m.chat_id = c.id WHERE m.user_id = ?`).all(userId);
+      for (const c of mine) {
+        if (c.direct_key === DISCUSSION_KEY) {
+          db.prepare('DELETE FROM chat_members WHERE chat_id = ? AND user_id = ?').run(c.id, userId);
+          continue;
+        }
+        if (['direct', 'saved'].includes(c.type) || c.direct_key === 'info:' + userId) { deleteChat(c); continue; }
+        if (c.role === 'owner') {
+          // Свою группу или канал передаём старейшему админу, иначе участнику группы; если некому — удаляем.
+          const heir = db.prepare(`SELECT user_id FROM chat_members WHERE chat_id = ? AND user_id != ?
+            AND (role = 'admin' OR ? = 'group') ORDER BY role = 'admin' DESC, joined_at LIMIT 1`).get(c.id, userId, c.type);
+          if (!heir) { deleteChat(c); continue; }
+          db.prepare("UPDATE chat_members SET role = 'owner' WHERE chat_id = ? AND user_id = ?").run(c.id, heir.user_id);
+        }
+        db.prepare('DELETE FROM chat_members WHERE chat_id = ? AND user_id = ?').run(c.id, userId);
+        broadcastChat(c.id, { type: 'chat.updated', chatId: c.id });
+      }
+      db.prepare('DELETE FROM reactions WHERE user_id = ?').run(userId);
+      db.prepare('DELETE FROM post_views WHERE user_id = ?').run(userId);
+      db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+    });
+    // Стёртые сообщения пропадают и у тех, у кого чат сейчас открыт.
+    for (const w of wiped) {
+      const m = getMessageRow.get(w.id);
+      if (m) broadcastChat(w.chat_id, { type: 'message.updated', message: publicMessage(m) });
+    }
+    hub.sendToUsers(peers, { type: 'user.deleted', userId });
+    hub.disconnectUser(userId, 'deleted');
+    return { messages: wiped.length };
+  }
+
   /** Удалить свой аккаунт навсегда. Нужен ключ входа (пароль). */
   app.post('/api/me/delete', (req, res) => {
     const row = getUserRow.get(req.userId);
     if (!verifyPassword(String(req.body?.password ?? ''), row.password_hash)) {
       throw new HttpError(403, 'bad_password', 'Неверный пароль');
     }
-    const peers = app.locals.sharedChatPeers(req.userId);
-    tx(db, () => {
-      const mine = db.prepare(`SELECT c.*, m.role FROM chats c JOIN chat_members m ON m.chat_id = c.id WHERE m.user_id = ?`).all(req.userId);
-      for (const c of mine) {
-        if (c.direct_key === DISCUSSION_KEY) continue;
-        if (['direct', 'saved'].includes(c.type) || c.direct_key === 'info:' + req.userId) { deleteChat(c); continue; }
-        if (c.role === 'owner') {
-          // Свою группу или канал передаём старейшему админу, иначе участнику группы; если некому — удаляем.
-          const heir = db.prepare(`SELECT user_id FROM chat_members WHERE chat_id = ? AND user_id != ?
-            AND (role = 'admin' OR ? = 'group') ORDER BY role = 'admin' DESC, joined_at LIMIT 1`).get(c.id, req.userId, c.type);
-          if (!heir) { deleteChat(c); continue; }
-          db.prepare("UPDATE chat_members SET role = 'owner' WHERE chat_id = ? AND user_id = ?").run(c.id, heir.user_id);
-        }
-        db.prepare('DELETE FROM chat_members WHERE chat_id = ? AND user_id = ?').run(c.id, req.userId);
-        broadcastChat(c.id, { type: 'chat.updated', chatId: c.id });
-      }
-      db.prepare('DELETE FROM reactions WHERE user_id = ?').run(req.userId);
-      db.prepare('DELETE FROM post_views WHERE user_id = ?').run(req.userId);
-      db.prepare('DELETE FROM users WHERE id = ?').run(req.userId);
-    });
-    hub.sendToUsers(peers, { type: 'user.deleted', userId: req.userId });
-    hub.disconnectUser(req.userId, 'deleted');
+    removeUser(req.userId);
     res.json({ ok: true });
   });
 
@@ -1749,6 +1812,55 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     res.json(adminUserView(getUserRow.get(row.id)));
   });
 
+  // Удалить пользователя насовсем вместе со всеми его сообщениями.
+  app.post('/api/admin/users/:id/delete', adminOnly, (req, res) => {
+    const row = moderatedTarget(req);
+    const wipe = req.body?.deleteMessages !== false;
+    const r = removeUser(row.id, { wipeMessages: wipe });
+    logModeration(req.userId, 'delete', 'user', row.id, row.username, String(req.body?.reason ?? '').trim().slice(0, 300));
+    res.json({ ok: true, deletedMessages: r.messages });
+  });
+
+  // Бан по устройству и сети (IP): с них больше нельзя ни войти, ни зарегистрироваться.
+  function deviceBanView(b) {
+    return { id: b.id, kind: b.kind, value: b.value, userId: b.user_id, username: b.username ?? '', reason: b.reason, createdAt: b.created_at };
+  }
+  app.post('/api/admin/users/:id/device-ban', adminOnly, (req, res) => {
+    const row = moderatedTarget(req);
+    const reason = String(req.body?.reason ?? '').trim().slice(0, 300);
+    const byDevice = req.body?.banDevice !== false, byIp = req.body?.banIp !== false;
+    const sessions = db.prepare('SELECT device_id, ip FROM sessions WHERE user_id = ?').all(row.id);
+    const devices = new Set([row.last_device_id, ...sessions.map((x) => x.device_id)].filter(Boolean));
+    const ips = new Set([row.last_ip, ...sessions.map((x) => x.ip)].filter(Boolean));
+    // Своё устройство и сеть админа не блокируем, даже если совпали.
+    const mine = db.prepare('SELECT device_id, ip FROM sessions WHERE user_id = ?').all(req.userId);
+    for (const m of [...mine, { device_id: clientDevice(req), ip: clientIp(req) }]) { devices.delete(m.device_id); ips.delete(m.ip); }
+    const ins = db.prepare('INSERT OR IGNORE INTO device_bans (id, kind, value, user_id, username, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    let added = 0;
+    tx(db, () => {
+      if (byDevice) for (const v of devices) added += ins.run(newId(), 'device', v, row.id, row.username, reason, now()).changes;
+      if (byIp) for (const v of ips) added += ins.run(newId(), 'ip', v, row.id, row.username, reason, now()).changes;
+      db.prepare('UPDATE users SET banned_until = ?, ban_reason = ? WHERE id = ?').run(FOREVER, reason, row.id);
+      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(row.id);
+    });
+    hub.disconnectUser(row.id);
+    logModeration(req.userId, 'device_ban', 'user', row.id, row.username, reason, FOREVER);
+    res.json({
+      user: adminUserView(getUserRow.get(row.id)),
+      devices: byDevice ? devices.size : 0, ips: byIp ? ips.size : 0, added,
+    });
+  });
+  app.get('/api/admin/device-bans', adminOnly, (_req, res) => {
+    res.json(db.prepare('SELECT * FROM device_bans ORDER BY created_at DESC LIMIT 500').all().map(deviceBanView));
+  });
+  app.delete('/api/admin/device-bans/:id', adminOnly, (req, res) => {
+    const b = db.prepare('SELECT * FROM device_bans WHERE id = ?').get(req.params.id);
+    if (!b) throw new HttpError(404, 'not_found', 'Блокировка не найдена');
+    db.prepare('DELETE FROM device_bans WHERE id = ?').run(b.id);
+    logModeration(req.userId, 'device_unban', 'user', b.user_id ?? '', b.username ?? '', `${b.kind === 'ip' ? 'IP' : 'устройство'} ${b.value}`);
+    res.json({ ok: true });
+  });
+
   app.delete('/api/admin/users/:id/ban', adminOnly, (req, res) => {
     const row = getUserRow.get(req.params.id);
     if (!row) throw new HttpError(404, 'user_not_found', 'Пользователь не найден');
@@ -1917,7 +2029,10 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
   app.locals.memberIds = memberIds;
   app.locals.sharedChatPeers = (userId) => db.prepare(`SELECT DISTINCT m2.user_id FROM chat_members m1
       JOIN chat_members m2 ON m1.chat_id = m2.chat_id WHERE m1.user_id = ?`).all(userId).map((r) => r.user_id);
-  app.locals.resolveToken = (token) => sessionStmt.get(String(token))?.user_id ?? null;
+  app.locals.resolveToken = (token, req) => {
+    if (req && deviceBanOf(req)) return null;
+    return sessionStmt.get(String(token))?.user_id ?? null;
+  };
   app.locals.isMember = (chatId, userId) => !!membershipStmt.get(chatId, userId);
   app.locals.isBlocked = (userId, byWhom) => isBlocked(byWhom, userId);
   /** Может ли `from` позвонить `to` по настройке «Кто может мне звонить». */

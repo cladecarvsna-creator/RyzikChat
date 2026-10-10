@@ -34,6 +34,11 @@ val AppJson = Json {
     encodeDefaults = true
 }
 
+/** Постоянный ID устройства (ANDROID_ID): по нему админ может заблокировать устройство. */
+object DeviceId {
+    @Volatile var value: String = ""
+}
+
 /** Клиент нашего собственного API (см. server/README.md). */
 class ApiClient(
     val http: OkHttpClient = OkHttpClient.Builder()
@@ -42,7 +47,11 @@ class ApiClient(
         .writeTimeout(5, TimeUnit.MINUTES)
         .pingInterval(25, TimeUnit.SECONDS)
         // Сервер работает через ngrok: этот заголовок убирает его страницу-предупреждение.
-        .addInterceptor { chain -> chain.proceed(chain.request().newBuilder().header("ngrok-skip-browser-warning", "1").build()) }
+        .addInterceptor { chain ->
+            val b = chain.request().newBuilder().header("ngrok-skip-browser-warning", "1")
+            if (DeviceId.value.isNotEmpty()) b.header("X-Device-Id", DeviceId.value)
+            chain.proceed(b.build())
+        }
         // Сервер перезапускается (обновление) или ngrok на миг потерял связь: повторяем чтение ещё пару раз.
         .addInterceptor { chain ->
             val req = chain.request()
@@ -449,6 +458,14 @@ class ApiClient(
     suspend fun serverStatus() = call("GET", "/api/admin/server", null, ServerStatus.serializer())
     suspend fun updateServer() = call("POST", "/api/admin/server/update", null, ServerUpdateResult.serializer())
     suspend fun moderationLog() = call("GET", "/api/admin/log", null, ListSerializer(ModerationLogEntry.serializer()))
+    suspend fun deleteUserAsAdmin(userId: String, reason: String) =
+        call("POST", "/api/admin/users/$userId/delete", buildJsonObject { put("deleteMessages", true); put("reason", reason) }, AdminDeleteResult.serializer())
+    suspend fun deviceBanUser(userId: String, reason: String, banDevice: Boolean, banIp: Boolean) =
+        call("POST", "/api/admin/users/$userId/device-ban", buildJsonObject {
+            put("reason", reason); put("banDevice", banDevice); put("banIp", banIp)
+        }, DeviceBanResult.serializer())
+    suspend fun deviceBans() = call("GET", "/api/admin/device-bans", null, ListSerializer(DeviceBan.serializer()))
+    suspend fun removeDeviceBan(id: String) = call("DELETE", "/api/admin/device-bans/$id", null, JsonObject.serializer())
 
     suspend fun setAdmin(userId: String, isAdmin: Boolean) =
         call("PUT", "/api/admin/users/$userId/admin", buildJsonObject { put("isAdmin", isAdmin) }, User.serializer())

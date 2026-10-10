@@ -30,6 +30,13 @@ import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.DeleteForever
+import androidx.compose.material.icons.rounded.PhonelinkLock
+import androidx.compose.material.icons.rounded.Wifi
+import androidx.compose.material.icons.rounded.Smartphone
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material.icons.rounded.Gavel
 import androidx.compose.material.icons.rounded.Group
 import androidx.compose.material.icons.rounded.History
@@ -60,6 +67,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.ryzik.chat.RyzikApp
 import app.ryzik.chat.data.AdminChat
+import app.ryzik.chat.data.DeviceBan
 import app.ryzik.chat.data.FOREVER_UNTIL
 import app.ryzik.chat.data.ModerationLogEntry
 import app.ryzik.chat.data.User
@@ -126,13 +134,16 @@ fun UsersModeration(modifier: Modifier, onOpenProfile: (String) -> Unit) {
     var query by remember { mutableStateOf("") }
     var users by remember { mutableStateOf<List<User>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
-    var action by remember { mutableStateOf<Pair<User, String>?>(null) } // "ban" | "restrict"
+    var action by remember { mutableStateOf<Pair<User, String>?>(null) } // "ban" | "restrict" | "delete" | "device"
     var grant by remember { mutableStateOf<User?>(null) }
     var reload by remember { mutableIntStateOf(0) }
+    var deviceBans by remember { mutableStateOf<List<DeviceBan>>(emptyList()) }
+    var info by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(query, reload) {
         if (query.isNotBlank()) delay(300)
         runCatching { api.adminUsers(query.trim()) }.onSuccess { users = it; error = null }.onFailure { error = it.userMessage() }
+        if (query.isBlank()) runCatching { api.deviceBans() }.onSuccess { deviceBans = it }
     }
     fun update(u: User) { users = users.map { if (it.id == u.id) u else it } }
     fun run(block: suspend () -> User) {
@@ -149,6 +160,7 @@ fun UsersModeration(modifier: Modifier, onOpenProfile: (String) -> Unit) {
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
             )
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp)) }
+            info?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp)) }
         }
         items(users, key = { it.id }) { u ->
             ModCard {
@@ -192,6 +204,56 @@ fun UsersModeration(modifier: Modifier, onOpenProfile: (String) -> Unit) {
                         if (u.restrictedUntil != null) OutlinedButton(onClick = { run { api.unrestrictUser(u.id) } }) { Text("Снять ограничение") }
                         else if (u.bannedUntil == null) OutlinedButton(onClick = { action = u to "restrict" }) { Text("Ограничить") }
                     }
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedButton(onClick = { action = u to "device" }, shape = RoundedCornerShape(16.dp)) {
+                        Icon(Icons.Rounded.PhonelinkLock, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Бан по устройству и Wi-Fi", color = MaterialTheme.colorScheme.error)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Button(
+                        onClick = { action = u to "delete" },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError),
+                    ) {
+                        Icon(Icons.Rounded.DeleteForever, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Удалить с сообщениями")
+                    }
+                }
+            }
+        }
+        if (query.isBlank() && deviceBans.isNotEmpty()) {
+            item {
+                Text(
+                    "Заблокированные устройства и сети",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 4.dp),
+                )
+            }
+            items(deviceBans, key = { "d" + it.id }) { b ->
+                ModCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(if (b.kind == "ip") Icons.Rounded.Wifi else Icons.Rounded.Smartphone, null, tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                (if (b.kind == "ip") "Сеть (IP) " else "Устройство ") + b.value.take(24),
+                                style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                listOfNotNull(b.username.takeIf { it.isNotBlank() }?.let { "@$it" }, b.reason.takeIf { it.isNotBlank() }, formatListTime(b.createdAt)).joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        TextButton(onClick = {
+                            scope.launch {
+                                runCatching { api.removeDeviceBan(b.id) }
+                                    .onSuccess { deviceBans = deviceBans.filter { it.id != b.id } }
+                                    .onFailure { error = it.userMessage() }
+                            }
+                        }) { Text("Снять") }
+                    }
                 }
             }
         }
@@ -203,7 +265,37 @@ fun UsersModeration(modifier: Modifier, onOpenProfile: (String) -> Unit) {
             run { api.grantFlux(u.id, amount, note) }
         }
     }
-    action?.let { (u, kind) ->
+    action?.takeIf { it.second == "delete" }?.let { (u, _) ->
+        PunishDialog(
+            title = "Удалить @${u.username}?",
+            text = "Аккаунт будет удалён навсегда вместе со всеми его сообщениями во всех чатах. Отменить это нельзя.",
+            icon = Icons.Rounded.DeleteForever,
+            confirm = "Удалить",
+            withDuration = false,
+            onDismiss = { action = null },
+        ) { _, reason ->
+            action = null
+            scope.launch {
+                runCatching { api.deleteUserAsAdmin(u.id, reason) }
+                    .onSuccess { r -> users = users.filter { it.id != u.id }; error = null; info = "@${u.username} удалён, стёрто сообщений: ${r.deletedMessages}" }
+                    .onFailure { error = it.userMessage() }
+            }
+        }
+    }
+    action?.takeIf { it.second == "device" }?.let { (u, _) ->
+        DeviceBanDialog(u, onDismiss = { action = null }) { reason, byDevice, byIp ->
+            action = null
+            scope.launch {
+                runCatching { api.deviceBanUser(u.id, reason, byDevice, byIp) }
+                    .onSuccess { r ->
+                        update(r.user); error = null; reload++
+                        info = "@${u.username} забанен навсегда. Устройств: ${r.devices}, сетей: ${r.ips}"
+                    }
+                    .onFailure { error = it.userMessage() }
+            }
+        }
+    }
+    action?.takeIf { it.second == "ban" || it.second == "restrict" }?.let { (u, kind) ->
         PunishDialog(
             title = if (kind == "ban") "Забанить @${u.username}?" else "Ограничить @${u.username}?",
             text = if (kind == "ban") "Аккаунт выйдет со всех устройств и не сможет войти до конца срока."
@@ -216,6 +308,47 @@ fun UsersModeration(modifier: Modifier, onOpenProfile: (String) -> Unit) {
             run { if (kind == "ban") api.banUser(u.id, days, reason) else api.restrictUser(u.id, days, reason) }
         }
     }
+}
+
+/** Бан по устройству и сети: с них больше не войти и не зарегистрировать новый аккаунт. */
+@Composable
+private fun DeviceBanDialog(u: User, onDismiss: () -> Unit, onConfirm: (String, Boolean, Boolean) -> Unit) {
+    var reason by remember { mutableStateOf("") }
+    var byDevice by remember { mutableStateOf(true) }
+    var byIp by remember { mutableStateOf(true) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(28.dp),
+        icon = { Icon(Icons.Rounded.PhonelinkLock, null, tint = MaterialTheme.colorScheme.error) },
+        title = { Text("Бан @${u.username} по устройству") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "Аккаунт забанится навсегда. С его устройств и сетей нельзя будет войти ни в какой аккаунт и создать новый.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { byDevice = !byDevice }) {
+                    Checkbox(byDevice, { byDevice = it })
+                    Text("Устройство (телефон)")
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { byIp = !byIp }) {
+                    Checkbox(byIp, { byIp = it })
+                    Text("Wi-Fi и сеть (IP)")
+                }
+                if (byIp) Text(
+                    "Бан по IP не пустит и других людей из той же сети.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(reason, { reason = it.take(300) }, label = { Text("Причина (её увидит пользователь)") }, shape = RoundedCornerShape(16.dp))
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = byDevice || byIp, onClick = { onConfirm(reason.trim(), byDevice, byIp) }) {
+                Text("Забанить", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+    )
 }
 
 /** Выбор срока и причины наказания. Срок в днях, 0 — навсегда. */
@@ -374,6 +507,8 @@ private fun actionText(e: ModerationLogEntry): String {
         "restrict" -> "ограничил $target ${untilText(e.until)}"
         "unrestrict" -> "снял ограничение с $target"
         "delete" -> "удалил $target"
+        "device_ban" -> "забанил по устройству и сети $target"
+        "device_unban" -> "снял бан устройства или сети $target"
         "flux_grant" -> "начислил FLUX: $target"
         "flux_take" -> "списал FLUX: $target"
         "verify" -> "выдал галочку: $target"
@@ -397,13 +532,13 @@ fun ModerationLog(modifier: Modifier) {
             ModCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val icon = when (e.action) {
-                        "ban", "delete" -> Icons.Rounded.Block
+                        "ban", "delete", "device_ban" -> Icons.Rounded.Block
                         "restrict" -> Icons.Rounded.SpeakerNotesOff
                         "unban", "unrestrict" -> Icons.Rounded.CheckCircle
                         "flux_grant", "flux_take" -> Icons.Rounded.Bolt
                         else -> Icons.Rounded.History
                     }
-                    Icon(icon, null, tint = if (e.action.startsWith("flux")) Color(0xFFFF9F43) else if (e.action.startsWith("un")) Color(0xFF2FBF71) else MaterialTheme.colorScheme.error)
+                    Icon(icon, null, tint = if (e.action.startsWith("flux")) Color(0xFFFF9F43) else if (e.action.startsWith("un") || e.action == "device_unban") Color(0xFF2FBF71) else MaterialTheme.colorScheme.error)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text("${e.admin?.displayName ?: "Админ"} ${actionText(e)}", style = MaterialTheme.typography.bodyMedium)

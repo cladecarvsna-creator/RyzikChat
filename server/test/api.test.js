@@ -654,3 +654,48 @@ test('пустой личный чат не виден, удаление чат�
   const inherited = (await api('GET', `/api/chats/${ch.id}`, null, tb)).body;
   assert.equal(inherited.myRole, 'owner');
 });
+
+test('админ: удаление пользователя с сообщениями и бан по устройству и сети', async () => {
+  const from = (ip, dev) => async (method, url, body, token) => {
+    const res = await fetch(base + url, {
+      method,
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': ip, 'x-device-id': dev, ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return { status: res.status, body: await res.json() };
+  };
+  const bad = from('10.0.0.66', 'dev-bad'), other = from('10.0.0.7', 'dev-ok');
+  const regAt = (fn, username) => fn('POST', '/api/auth/register', {
+    username, displayName: username, password: 'x'.repeat(64), publicKey: 'pk', encryptedPrivateKey: 'enc',
+  });
+  const spam = (await regAt(bad, 'spammer9')).body;
+  const fine = (await regAt(other, 'fine9')).body;
+  const g = (await other('POST', '/api/chats/group', { title: 'Чистка', memberIds: [spam.user.id] }, fine.token)).body;
+  const m = (await bad('POST', `/api/chats/${g.id}/messages`, { type: 'text', payload: 'спам' }, spam.token)).body;
+  await other('POST', `/api/chats/${g.id}/messages`, { type: 'text', payload: 'норм' }, fine.token);
+
+  // Обычный человек банить не может.
+  assert.equal((await other('POST', `/api/admin/users/${spam.user.id}/device-ban`, {}, fine.token)).status, 403);
+  const ban = await api('POST', `/api/admin/users/${spam.user.id}/device-ban`, { reason: 'спам' }, aliceToken);
+  assert.equal(ban.status, 200);
+  assert.equal(ban.body.devices, 1);
+  assert.equal(ban.body.ips, 1);
+  // С того же устройства (даже через другую сеть) и из той же сети — не пускает, новый аккаунт тоже.
+  const sameDevice = from('10.9.9.9', 'dev-bad'), sameNet = from('10.0.0.66', 'dev-new');
+  assert.equal((await regAt(sameDevice, 'spammer10')).body.error, 'device_banned');
+  assert.equal((await regAt(sameNet, 'spammer11')).body.error, 'device_banned');
+  assert.equal((await other('GET', '/api/me', null, fine.token)).status, 200, 'других не задевает');
+  const list = (await api('GET', '/api/admin/device-bans', null, aliceToken)).body;
+  const ipBan = list.find((b) => b.kind === 'ip' && b.value === '10.0.0.66');
+  assert.ok(ipBan);
+  assert.equal((await api('DELETE', `/api/admin/device-bans/${ipBan.id}`, null, aliceToken)).body.ok, true);
+  assert.equal((await regAt(sameNet, 'spammer11')).status, 201, 'после разбана сети пускает');
+
+  // Удаление пользователя стирает все его сообщения.
+  const del = await api('POST', `/api/admin/users/${spam.user.id}/delete`, {}, aliceToken);
+  assert.equal(del.body.deletedMessages, 1);
+  const msgs = (await other('GET', `/api/chats/${g.id}/messages`, null, fine.token)).body;
+  assert.equal(msgs.find((x) => x.id === m.id).deleted, true);
+  assert.equal(msgs.at(-1).deleted, false);
+  assert.equal((await api('POST', `/api/admin/users/${spam.user.id}/delete`, {}, aliceToken)).status, 404);
+});

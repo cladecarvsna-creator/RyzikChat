@@ -6,6 +6,7 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import app.ryzik.chat.call.CallManager
 import app.ryzik.chat.data.AuthState
 import app.ryzik.chat.data.ChatRepository
+import app.ryzik.chat.data.DeviceId
 import app.ryzik.chat.data.Notice
 import app.ryzik.chat.data.Prefs
 import app.ryzik.chat.notify.AccountWatcher
@@ -41,6 +42,9 @@ class RyzikApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        DeviceId.value = runCatching {
+            android.provider.Settings.Secure.getString(contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+        }.getOrNull().orEmpty()
         prefs = Prefs(this)
         repo = ChatRepository(this, prefs)
         calls = CallManager(this, repo)

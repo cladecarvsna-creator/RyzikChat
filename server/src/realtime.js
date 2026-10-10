@@ -112,7 +112,7 @@ export class Hub {
 
   onConnection(ws, req, locals) {
     const url = new URL(req.url, 'http://localhost');
-    const userId = locals.resolveToken(url.searchParams.get('token') ?? '');
+    const userId = locals.resolveToken(url.searchParams.get('token') ?? '', req);
     if (!userId) {
       ws.close(4001, 'unauthorized');
       return;
