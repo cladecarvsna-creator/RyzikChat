@@ -1,5 +1,6 @@
 package app.ryzik.chat.ui.profile
 
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.Forum
@@ -439,6 +440,7 @@ fun ChatInfoScreen(
     var infoError by remember { mutableStateOf<String?>(null) }
     var editUsername by remember { mutableStateOf<String?>(null) }
     var discussionDialog by remember { mutableStateOf(false) }
+    var deleteDialog by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     val myId = repo.myId
@@ -604,6 +606,13 @@ fun ChatInfoScreen(
                     modifier = Modifier.clickable { discussionDialog = true },
                 )
             }
+            if (app.ryzik.chat.ui.chats.canDelete(chat)) item {
+                ListItem(
+                    headlineContent = { Text(app.ryzik.chat.ui.chats.deleteTitle(chat), color = MaterialTheme.colorScheme.error) },
+                    leadingContent = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) },
+                    modifier = Modifier.clickable { deleteDialog = true },
+                )
+            }
             chat.linkedChannelId?.let { channelId ->
                 if (chat.type == "group") item {
                     ListItem(
@@ -754,6 +763,9 @@ fun ChatInfoScreen(
     }
 
     val dChat = chat
+    if (deleteDialog && dChat != null) {
+        app.ryzik.chat.ui.chats.DeleteChatDialog(dChat, onDismiss = { deleteDialog = false }) { deleteDialog = false; onLeft() }
+    }
     if (discussionDialog && dChat != null) {
         val myGroups = chats.filter { it.type == "group" && (it.myRole == "owner" || it.myRole == "admin") }
         var busy by remember { mutableStateOf(false) }

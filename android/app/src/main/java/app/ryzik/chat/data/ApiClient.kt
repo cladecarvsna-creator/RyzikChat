@@ -172,6 +172,8 @@ class ApiClient(
         call(if (blocked) "PUT" else "DELETE", "/api/blocks/$userId", null, User.serializer())
 
     suspend fun logout() = callUnit("POST", "/api/auth/logout")
+    suspend fun deleteAccount(authKey: String) = callUnit("POST", "/api/me/delete", buildJsonObject { put("password", authKey) })
+    suspend fun deleteChat(chatId: String) = callUnit("DELETE", "/api/chats/$chatId")
     suspend fun sessions() = call("GET", "/api/sessions", null, ListSerializer(SessionInfo.serializer()))
     suspend fun terminateOtherSessions() = callUnit("POST", "/api/sessions/terminate-others")
 

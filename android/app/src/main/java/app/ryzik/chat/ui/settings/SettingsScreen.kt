@@ -1,5 +1,6 @@
 package app.ryzik.chat.ui.settings
 
+import androidx.compose.material.icons.rounded.DeleteForever
 import androidx.compose.material.icons.rounded.AlternateEmail
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material3.FilterChip
@@ -731,6 +732,8 @@ private fun PrivacySettings(s: AppSettings, update: ((AppSettings) -> AppSetting
         modifier = Modifier.clickable { changing = true },
     )
     info?.let { Text(it, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.primary) }
+    Header("Удаление аккаунта")
+    DeleteAccountSection()
 
     if (changing) {
         var old by remember { mutableStateOf("") }
@@ -760,6 +763,54 @@ private fun PrivacySettings(s: AppSettings, update: ((AppSettings) -> AppSetting
                 }) { Text("Сменить") }
             },
             dismissButton = { TextButton(onClick = { changing = false }) { Text("Отмена") } },
+        )
+    }
+}
+
+/** Удалить аккаунт навсегда: с подтверждением паролем. */
+@Composable
+private fun DeleteAccountSection() {
+    val repo = RyzikApp.instance.repo
+    val scope = rememberCoroutineScope()
+    var open by remember { mutableStateOf(false) }
+    ListItem(
+        headlineContent = { Text("Удалить аккаунт", color = MaterialTheme.colorScheme.error) },
+        supportingContent = { Text("Навсегда удалит профиль, личные чаты, ваши группы и каналы без админов") },
+        leadingContent = { Icon(Icons.Rounded.DeleteForever, null, tint = MaterialTheme.colorScheme.error) },
+        modifier = Modifier.clickable { open = true },
+    )
+    if (open) {
+        var password by remember { mutableStateOf("") }
+        var confirm by remember { mutableStateOf("") }
+        var err by remember { mutableStateOf<String?>(null) }
+        var busy by remember { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = { if (!busy) open = false },
+            icon = { Icon(Icons.Rounded.DeleteForever, null, tint = MaterialTheme.colorScheme.error) },
+            title = { Text("Удалить аккаунт?") },
+            text = {
+                Column {
+                    Text("Это нельзя отменить. Удалятся профиль, подарки, FLUX, личные чаты и Избранное. Ваши каналы и группы перейдут админам, а если их нет — удалятся.")
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(password, { password = it }, label = { Text("Пароль") }, singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(confirm, { confirm = it }, label = { Text("Напишите УДАЛИТЬ") }, singleLine = true)
+                    err?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = !busy && password.isNotEmpty() && confirm.trim().equals("УДАЛИТЬ", ignoreCase = true), onClick = {
+                    busy = true
+                    scope.launch {
+                        runCatching { repo.deleteAccount(password) }
+                            .onSuccess { open = false }
+                            .onFailure { err = it.userMessage() }
+                        busy = false
+                    }
+                }) { Text("Удалить навсегда", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(enabled = !busy, onClick = { open = false }) { Text("Отмена") } },
         )
     }
 }

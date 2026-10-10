@@ -1,5 +1,6 @@
 package app.ryzik.chat.ui.chats
 
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.SearchOff
 import androidx.compose.material3.Surface
@@ -103,6 +104,9 @@ import app.ryzik.chat.ui.channel.membersText
 import app.ryzik.chat.ui.channel.parseInviteCode
 import app.ryzik.chat.data.AuthState
 import app.ryzik.chat.data.Chat
+import app.ryzik.chat.data.userMessage
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
 import app.ryzik.chat.data.User
 import app.ryzik.chat.ui.components.Avatar
 import app.ryzik.chat.ui.components.VerifiedMark
@@ -200,6 +204,8 @@ fun ChatListScreen(
     val visible = chats.filter { c ->
         val title = repo.chatTitle(c)
         !((c.type == "channel" || c.type == "group") && c.myRole == null) &&
+        // Личный чат появляется в списке только после первого сообщения.
+        !(c.type == "direct" && c.lastMessage == null) &&
         (if (showArchive) c.archived else !c.archived) &&
             (query.isBlank() || title.contains(query, ignoreCase = true)) &&
             when (filter) {
@@ -394,6 +400,7 @@ fun ChatListScreen(
         }
     }
 
+    var deleting by remember { mutableStateOf<Chat?>(null) }
     menuChat?.let { chat ->
         ModalBottomSheet(onDismissRequest = { menuChat = null }) {
             Text(
@@ -436,9 +443,65 @@ fun ChatListScreen(
                     modifier = Modifier.combinedClickable(onClick = { act { repo.removeMember(chat.id, me!!.id) } }),
                 )
             }
+            if (canDelete(chat)) {
+                ListItem(
+                    headlineContent = { Text(deleteTitle(chat), color = MaterialTheme.colorScheme.error) },
+                    leadingContent = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) },
+                    modifier = Modifier.combinedClickable(onClick = { menuChat = null; deleting = chat }),
+                )
+            }
             Spacer(Modifier.height(32.dp))
         }
     }
+    deleting?.let { chat ->
+        DeleteChatDialog(chat, onDismiss = { deleting = null }) { deleting = null }
+    }
+}
+
+/** Что можно удалить: личный чат — любой участник, группу и канал — владелец. */
+fun canDelete(chat: Chat): Boolean = !chat.isService && chat.type != "saved" &&
+    (chat.type == "direct" || (chat.type in listOf("group", "channel") && chat.myRole == "owner"))
+
+fun deleteTitle(chat: Chat): String = when (chat.type) {
+    "group" -> "Удалить группу"
+    "channel" -> "Удалить канал"
+    else -> "Удалить чат"
+}
+
+/** Подтверждение удаления чата. */
+@Composable
+fun DeleteChatDialog(chat: Chat, onDismiss: () -> Unit, onDeleted: () -> Unit) {
+    val repo = RyzikApp.instance.repo
+    val scope = rememberCoroutineScope()
+    var busy by remember { mutableStateOf(false) }
+    var err by remember { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) },
+        title = { Text(deleteTitle(chat) + "?") },
+        text = {
+            Column {
+                Text(
+                    when (chat.type) {
+                        "direct" -> "Переписка с «${repo.chatTitle(chat)}» удалится у вас обоих. Это нельзя отменить."
+                        "group" -> "Группа и все сообщения удалятся у всех участников. Это нельзя отменить."
+                        else -> "Канал и все посты удалятся у всех подписчиков. Это нельзя отменить."
+                    }
+                )
+                err?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = !busy, onClick = {
+                busy = true
+                scope.launch {
+                    runCatching { repo.deleteChat(chat.id) }.onSuccess { onDeleted() }.onFailure { err = it.userMessage() }
+                    busy = false
+                }
+            }) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+    )
 }
 
 @Composable

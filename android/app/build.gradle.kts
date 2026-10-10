@@ -13,8 +13,8 @@ android {
         applicationId = "app.ryzik.chat"
         minSdk = 26
         targetSdk = 35
-        versionCode = 22
-        versionName = "0.8.0"
+        versionCode = 23
+        versionName = "0.8.1"
         // Адрес сервера по умолчанию: 10.0.2.2 — это компьютер, на котором запущен эмулятор.
         buildConfigField("String", "DEFAULT_SERVER", "\"https://aydin-dipsacaceous-nonelementally.ngrok-free.dev\"")
     }

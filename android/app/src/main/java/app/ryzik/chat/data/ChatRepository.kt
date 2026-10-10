@@ -331,6 +331,20 @@ class ChatRepository(private val context: Context, val prefs: Prefs) {
         api.changePassword(oldKeys.authKey, newKeys.authKey, E2E.sealPrivateKey(privateKey!!, newKeys.vaultKey))
     }
 
+    /** Удаляет аккаунт навсегда (нужен пароль) и выходит. */
+    suspend fun deleteAccount(password: String) {
+        val me = (auth.value as AuthState.LoggedIn).me
+        val keys = withContext(Dispatchers.Default) { E2E.derivePasswordKeys(me.username, password) }
+        api.deleteAccount(keys.authKey)
+        resetLocal()
+    }
+
+    /** Удалить чат: личный — у обоих, группу или канал — у всех (только владелец). */
+    suspend fun deleteChat(chatId: String) {
+        api.deleteChat(chatId)
+        _chats.update { l -> l.filterNot { it.id == chatId } }
+    }
+
     fun logout() {
         scope.launch {
             runCatching { api.logout() }

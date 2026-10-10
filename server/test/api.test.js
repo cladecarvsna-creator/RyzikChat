@@ -355,7 +355,7 @@ test('обои чата видят все участники', async () => {
   const pic = await uploadImage(x.token, 'wall');
   const set = await api('PUT', `/api/chats/${chat.id}/wallpaper`, { fileId: pic }, x.token);
   assert.equal(set.body.wallpaperFileId, pic);
-  const seen = (await api('GET', '/api/chats', null, y.token)).body.find((c) => c.id === chat.id);
+  const seen = (await api('GET', `/api/chats/${chat.id}`, null, y.token)).body;
   assert.equal(seen.wallpaperFileId, pic, 'собеседник видит те же обои');
   assert.equal(await (await fetch(`${base}/api/avatars/${pic}`)).text(), 'wall');
   // Чужую картинку поставить нельзя.
@@ -617,4 +617,40 @@ test('канал: просмотры, привязанная группа и к�
   assert.equal((await api('GET', `/api/chats/${ch.id}/messages`, null, r)).body[0].comments, 1);
   // В самой группе комментарий тоже виден.
   assert.equal((await api('GET', `/api/chats/${grp.id}/messages`, null, t)).body.at(-1).commentOf, post.id);
+});
+
+test('пустой личный чат не виден, удаление чатов и аккаунта', async () => {
+  const a = await reg('deleter1');
+  const b = await reg('deleter2');
+  const ta = a.body.token, tb = b.body.token;
+  const dm = (await api('POST', '/api/chats/direct', { userId: b.body.user.id }, ta)).body;
+  const ids = async (t) => (await api('GET', '/api/chats', null, t)).body.map((c) => c.id);
+  assert.ok(!(await ids(ta)).includes(dm.id), 'без сообщений чата нет в списке');
+  assert.ok(!(await ids(tb)).includes(dm.id));
+  await api('POST', `/api/chats/${dm.id}/messages`, { type: 'text', payload: 'привет' }, ta);
+  assert.ok((await ids(ta)).includes(dm.id));
+  assert.ok((await ids(tb)).includes(dm.id), 'после первого сообщения чат есть у обоих');
+
+  // Удаление личного чата — у обоих.
+  assert.equal((await api('DELETE', `/api/chats/${dm.id}`, null, tb)).body.ok, true);
+  assert.ok(!(await ids(ta)).includes(dm.id));
+  // Группу удаляет только владелец.
+  const g = (await api('POST', '/api/chats/group', { title: 'Удаляемая', memberIds: [b.body.user.id] }, ta)).body;
+  assert.equal((await api('DELETE', `/api/chats/${g.id}`, null, tb)).status, 403);
+  assert.equal((await api('DELETE', `/api/chats/${g.id}`, null, ta)).status, 200);
+  assert.equal((await api('GET', `/api/chats/${g.id}`, null, ta)).status, 404);
+  const saved = (await api('GET', '/api/chats', null, ta)).body.find((c) => c.type === 'saved');
+  assert.equal((await api('DELETE', `/api/chats/${saved.id}`, null, ta)).body.error, 'cannot_delete');
+
+  // Удаление аккаунта: канал переходит админу, вход больше не работает.
+  const ch = (await api('POST', '/api/chats/channel', { title: 'Наследство', isPublic: true }, ta)).body;
+  await api('POST', `/api/chats/${ch.id}/subscribe`, null, tb);
+  await api('PUT', `/api/chats/${ch.id}/members/${b.body.user.id}/role`, { role: 'admin' }, ta);
+  await api('POST', '/api/chats/group', { title: 'Своя', memberIds: [] }, ta);
+  assert.equal((await api('POST', '/api/me/delete', { password: 'wrong' }, ta)).status, 403);
+  assert.equal((await api('POST', '/api/me/delete', { password: 'x'.repeat(64) }, ta)).body.ok, true);
+  assert.equal((await api('GET', '/api/me', null, ta)).status, 401);
+  assert.equal((await api('POST', '/api/auth/login', { username: 'deleter1', password: 'x'.repeat(64) })).status, 401);
+  const inherited = (await api('GET', `/api/chats/${ch.id}`, null, tb)).body;
+  assert.equal(inherited.myRole, 'owner');
 });

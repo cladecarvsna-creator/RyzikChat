@@ -775,7 +775,8 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
   app.get('/api/chats', (req, res) => {
     ensureInfoChat(req.userId);
     const ids = db.prepare('SELECT chat_id FROM chat_members WHERE user_id = ?').all(req.userId).map((r) => r.chat_id);
-    const chats = ids.map((id) => chatView(id, req.userId)).filter(Boolean);
+    // Личный чат без сообщений не показываем: он появится, когда кто-то напишет первым.
+    const chats = ids.map((id) => chatView(id, req.userId)).filter((c) => c && !(c.type === 'direct' && !c.lastMessage));
     chats.sort((a, b) => (b.lastMessage?.createdAt ?? b.createdAt) - (a.lastMessage?.createdAt ?? a.createdAt));
     res.json(chats);
   });
@@ -805,7 +806,6 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
       created = true;
     }
     const view = chatView(chat.id, req.userId);
-    if (created) hub.sendToUsers([other], { type: 'chat.new', chat: chatView(chat.id, other), by: req.userId });
     res.status(created ? 201 : 200).json(view);
   });
 
@@ -1118,6 +1118,62 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
     res.json({ ok: true });
   });
 
+  /**
+   * Удалить чат. Личный — у обоих. Группу или канал — только владелец, у всех участников.
+   * Избранное, RyzikChat Info и общий чат удалить нельзя.
+   */
+  app.delete('/api/chats/:id', (req, res) => {
+    const m = requireMember(req.params.id, req.userId);
+    const chat = getChatRow.get(req.params.id);
+    if (chat.type === 'saved' || chat.created_by === SYSTEM_ID || chat.direct_key === DISCUSSION_KEY) {
+      throw new HttpError(400, 'cannot_delete', 'Этот чат удалить нельзя');
+    }
+    if (['group', 'channel'].includes(chat.type) && m.role !== 'owner') {
+      throw new HttpError(403, 'forbidden', 'Удалить может только владелец. Вы можете выйти');
+    }
+    deleteChat(chat);
+    res.json({ ok: true });
+  });
+
+  function deleteChat(chat) {
+    const members = memberIds(chat.id);
+    db.prepare('UPDATE chats SET discussion_id = NULL WHERE discussion_id = ?').run(chat.id);
+    db.prepare('DELETE FROM post_views WHERE message_id IN (SELECT id FROM messages WHERE chat_id = ?)').run(chat.id);
+    db.prepare('DELETE FROM chats WHERE id = ?').run(chat.id);
+    hub.sendToUsers(members, { type: 'chat.removed', chatId: chat.id });
+  }
+
+  /** Удалить свой аккаунт навсегда. Нужен ключ входа (пароль). */
+  app.post('/api/me/delete', (req, res) => {
+    const row = getUserRow.get(req.userId);
+    if (!verifyPassword(String(req.body?.password ?? ''), row.password_hash)) {
+      throw new HttpError(403, 'bad_password', 'Неверный пароль');
+    }
+    const peers = app.locals.sharedChatPeers(req.userId);
+    tx(db, () => {
+      const mine = db.prepare(`SELECT c.*, m.role FROM chats c JOIN chat_members m ON m.chat_id = c.id WHERE m.user_id = ?`).all(req.userId);
+      for (const c of mine) {
+        if (c.direct_key === DISCUSSION_KEY) continue;
+        if (['direct', 'saved'].includes(c.type) || c.direct_key === 'info:' + req.userId) { deleteChat(c); continue; }
+        if (c.role === 'owner') {
+          // Свою группу или канал передаём старейшему админу, иначе участнику группы; если некому — удаляем.
+          const heir = db.prepare(`SELECT user_id FROM chat_members WHERE chat_id = ? AND user_id != ?
+            AND (role = 'admin' OR ? = 'group') ORDER BY role = 'admin' DESC, joined_at LIMIT 1`).get(c.id, req.userId, c.type);
+          if (!heir) { deleteChat(c); continue; }
+          db.prepare("UPDATE chat_members SET role = 'owner' WHERE chat_id = ? AND user_id = ?").run(c.id, heir.user_id);
+        }
+        db.prepare('DELETE FROM chat_members WHERE chat_id = ? AND user_id = ?').run(c.id, req.userId);
+        broadcastChat(c.id, { type: 'chat.updated', chatId: c.id });
+      }
+      db.prepare('DELETE FROM reactions WHERE user_id = ?').run(req.userId);
+      db.prepare('DELETE FROM post_views WHERE user_id = ?').run(req.userId);
+      db.prepare('DELETE FROM users WHERE id = ?').run(req.userId);
+    });
+    hub.sendToUsers(peers, { type: 'user.deleted', userId: req.userId });
+    hub.disconnectUser(req.userId, 'deleted');
+    res.json({ ok: true });
+  });
+
   app.post('/api/chats/:id/read', (req, res) => {
     requireMember(req.params.id, req.userId);
     const seq = Number(req.body?.seq ?? 0);
@@ -1192,6 +1248,9 @@ export function createApp({ db, dataDir, hub, adminUsernames = [], updateSource 
       db.prepare('UPDATE chat_members SET last_read_seq = ? WHERE chat_id = ? AND user_id = ?').run(seq, chat.id, req.userId);
       return publicMessage(db.prepare('SELECT * FROM messages WHERE id = ?').get(id));
     });
+    if (target.type === 'direct' && msg.seq === 1) {
+      for (const id of memberIds(target.id)) if (id !== req.userId) hub.sendToUsers([id], { type: 'chat.new', chat: chatView(target.id, id) });
+    }
     broadcastChat(msg.chatId, { type: 'message.new', message: msg });
     if (paid) { pushMe(req.userId); pushMe(paid.to.id); }
     res.status(201).json(msg);
